@@ -1,6 +1,7 @@
 package com.worldql.mammoth.listeners.player;
 
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import com.google.flatbuffers.FlexBuffersBuilder;
@@ -17,7 +18,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import zmq.ZMQ;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -34,18 +34,8 @@ public class PlayerServerTransferJoinLeave implements Listener {
             b.putString("uuid", e.getPlayer().getUniqueId().toString());
             b.endMap(null, pmap);
             ByteBuffer bb = b.finish();
-            Message message = new Message(
-                    Instruction.LocalMessage,
-                    MammothPlugin.worldQLClientId,
-                    e.getPlayer().getWorld().getName(),
-                    Replication.ExceptSelf,
-                    new Vec3D(e.getPlayer().getLocation()),
-                    null,
-                    null,
-                    "MinecraftPlayerQuit",
-                    bb
-            );
-            MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+            MammothPlugin.transport().publishToRegion(
+                    ClusterMessage.at(e.getPlayer().getWorld().getName(), new Vec3D(e.getPlayer().getLocation()), "MinecraftPlayerQuit", bb));
         }
     }
 
@@ -105,19 +95,8 @@ public class PlayerServerTransferJoinLeave implements Listener {
             b.endMap(null, pmap);
             ByteBuffer bb = b.finish();
 
-            Message message = new Message(
-                    Instruction.LocalMessage,
-                    MammothPlugin.worldQLClientId,
-                    e.getPlayer().getWorld().getName(),
-                    Replication.ExceptSelf,
-                    new Vec3D(player.getLocation()),
-                    null,
-                    null,
-                    "MinecraftPlayerMove",
-                    bb
-            );
-
-            MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+            MammothPlugin.transport().publishToRegion(
+                    ClusterMessage.at(e.getPlayer().getWorld().getName(), new Vec3D(player.getLocation()), "MinecraftPlayerMove", bb));
 
             // Announce what they are wearing and holding, otherwise their ghost stays naked on the
             // other servers until they change a piece of equipment (issue #52). This runs a little

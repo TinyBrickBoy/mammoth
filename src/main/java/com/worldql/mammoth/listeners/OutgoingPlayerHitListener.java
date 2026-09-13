@@ -1,5 +1,6 @@
 package com.worldql.mammoth.listeners;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.events.OutgoingPlayerHitEvent;
@@ -9,7 +10,6 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Entity;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import zmq.ZMQ;
 
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
@@ -33,20 +33,8 @@ public class OutgoingPlayerHitListener implements Listener {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.LocalMessage,
-                MammothPlugin.worldQLClientId,
-                event.getAttacker().getWorld().getName(),
-                Replication.ExceptSelf,
-                new Vec3D(new Location(event.getAttacker().getWorld(),
-                        event.getReceiver().getX(), event.getReceiver().getY(), event.getReceiver().getZ())),
-                null,
-                null,
-                "MinecraftPlayerDamage",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().publishToRegion(
+                ClusterMessage.at(event.getAttacker().getWorld().getName(), new Vec3D(new Location(event.getAttacker().getWorld(), event.getReceiver().getX(), event.getReceiver().getY(), event.getReceiver().getZ())), "MinecraftPlayerDamage", bb));
 
     }
 

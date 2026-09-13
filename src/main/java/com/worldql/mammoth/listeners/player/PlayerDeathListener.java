@@ -1,5 +1,6 @@
 package com.worldql.mammoth.listeners.player;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.Slices;
@@ -11,9 +12,6 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEn
 import com.worldql.mammoth.ghost.GhostPlayer;
 import com.worldql.mammoth.protocols.ProtocolManager;
 import com.worldql.mammoth.worldql_serialization.Codec;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Replication;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import org.bukkit.Bukkit;
@@ -28,7 +26,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 import java.util.UUID;
@@ -85,19 +82,8 @@ public class PlayerDeathListener implements Listener {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.GlobalMessage,
-                MammothPlugin.worldQLClientId,
-                "@global",
-                Replication.IncludingSelf,
-                null,
-                null,
-                null,
-                "MinecraftPlayerDeath",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().broadcastIncludingSelf(
+                ClusterMessage.anywhere("MinecraftPlayerDeath", bb));
 
         // Stop drops from dropping if killed by a player
         if (killerUuid != null) {
@@ -105,8 +91,8 @@ public class PlayerDeathListener implements Listener {
         }
     }
 
-    public static void handleIncomingDeath(@NotNull Message message, boolean isSelf) {
-        FlexBuffers.Map map = FlexBuffers.getRoot(message.flex()).asMap();
+    public static void handleIncomingDeath(@NotNull ClusterMessage message, boolean isSelf) {
+        FlexBuffers.Map map = FlexBuffers.getRoot(message.payload()).asMap();
         Server server = MammothPlugin.getPluginInstance().getServer();
 
         // Broadcast death message

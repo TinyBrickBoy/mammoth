@@ -20,33 +20,25 @@ import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder
 import com.worldql.mammoth.ghost.PlayerGhostManager;
 import com.worldql.mammoth.minecraft_serialization.SaveLoadPlayerFromRedis;
 import com.worldql.mammoth.protocols.ProtocolManager;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Replication;
+import com.worldql.mammoth.transport.MammothTransport;
+import com.worldql.mammoth.transport.RecordStore;
+import com.worldql.mammoth.transport.worldql.WorldQlTransport;
 import org.bukkit.Bukkit;
 import org.bukkit.GameRules;
 import org.bukkit.World;
 import org.bukkit.WorldBorder;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.zeromq.SocketType;
-import org.zeromq.ZContext;
-import org.zeromq.ZMQ;
 import redis.clients.jedis.RedisClient;
 import redis.clients.jedis.exceptions.JedisException;
 
-import java.time.Instant;
-import java.util.UUID;
 
 public class MammothPlugin extends JavaPlugin {
     public static boolean disabling;
     public static MammothPlugin pluginInstance;
-    public static UUID worldQLClientId;
     public static RedisClient redis;
     public static int mammothServerId;
-    private Thread zeroMQThread;
-    private ZContext context;
-    private ZMQ.Socket pushSocket;
+    private static WorldQlTransport worldQlTransport;
     public static boolean processGhosts;
     public static boolean syncPlayerInventory;
     public static boolean syncPlayerHealthXPHunger;
@@ -54,10 +46,8 @@ public class MammothPlugin extends JavaPlugin {
     public static boolean avoidSlicingOrigin;
     public static int originRadius;
     public static PlayerDataSavingManager playerDataSavingManager;
-    public static long timestampOfLastHeartbeat;
     public static String worldName;
     public static boolean enableChatRelay;
-    static int zeroMQServerPort;
     public static String serverPrefix;
 
     @Override
@@ -93,9 +83,6 @@ public class MammothPlugin extends JavaPlugin {
         }
 
         mammothServerId = Bukkit.getServer().getPort() - getConfig().getInt("starting-port");
-        worldQLClientId = java.util.UUID.randomUUID();
-        context = new ZContext();
-        pushSocket = context.createSocket(SocketType.PUSH);
         processGhosts = getConfig().getBoolean("ghosts", false);
         syncPlayerInventory = getConfig().getBoolean("sync-player-inventory", true);
         syncPlayerHealthXPHunger = getConfig().getBoolean("sync-player-health-xp-hunger", true);
@@ -103,23 +90,21 @@ public class MammothPlugin extends JavaPlugin {
         avoidSlicingOrigin = getConfig().getBoolean("avoid-slicing-origin", false);
         originRadius = getConfig().getInt("origin-radius", 256);
         playerDataSavingManager = new PlayerDataSavingManager();
-        timestampOfLastHeartbeat = Instant.now().toEpochMilli();
         worldName = getConfig().getString("world-name", "world");
         enableChatRelay = getConfig().getBoolean("chat-relay", true);
         serverPrefix = getConfig().getString("server-prefix", "mammoth_");
         PlayerChatListener.chatFormat = getConfig().getString("chat-format", "<{0}> {1}");
 
-        String worldqlHost = getConfig().getString("worldql.host", "127.0.0.1");
-        int worldqlPushPort = getConfig().getInt("worldql.push-port", 5555);
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
+
         // "host" is what the rest of the cluster is told to reach us on, so it may be a DNS name.
         // ZeroMQ cannot bind to a name, so the listening interface is configured separately.
-        String selfHostname = getConfig().getString("host", "127.0.0.1");
-        String bindAddress = getConfig().getString("bind-address", "0.0.0.0");
-
-        // Connect to the WorldQL server.
-        getLogger().info("Attempting to connect to WorldQL server.");
-        pushSocket.connect("tcp://%s:%d".formatted(worldqlHost, worldqlPushPort));
+        worldQlTransport = new WorldQlTransport(
+                getLogger(),
+                getConfig().getString("worldql.host", "127.0.0.1"),
+                getConfig().getInt("worldql.push-port", 5555),
+                getConfig().getString("host", "127.0.0.1"),
+                getConfig().getString("bind-address", "0.0.0.0"));
 
         Slices.enabled = getConfig().getBoolean("slice-mode");
         if (Slices.enabled) {
@@ -154,34 +139,6 @@ public class MammothPlugin extends JavaPlugin {
                 }
             }, 20);
         }
-
-        Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
-            Message message = new Message(
-                    Instruction.Heartbeat,
-                    MammothPlugin.worldQLClientId,
-                    "@global"
-            );
-
-            pushSocket.send(message.encode(), zmq.ZMQ.ZMQ_DONTWAIT);
-
-            long now = Instant.now().toEpochMilli();
-            if (now - timestampOfLastHeartbeat > 15000) {
-                getLogger().warning("Haven't received a heartbeat from WorldQL in over 15 seconds! Attempting to reconnect.");
-                Message reconnectMessage = new Message(
-                        Instruction.Handshake,
-                        MammothPlugin.worldQLClientId,
-                        "@global",
-                        Replication.ExceptSelf,
-                        null,
-                        null,
-                        null,
-                        selfHostname + ":" + MammothPlugin.zeroMQServerPort,
-                        null
-                );
-
-                MammothPlugin.getPluginInstance().getPushSocket().send(reconnectMessage.encode(), ZMQ.DONTWAIT);
-            }
-        }, 5L, 20L * 5L);
 
         if (Slices.enabled && getConfig().getBoolean("border-particles", true)) {
             Bukkit.getScheduler().runTaskTimer(this, new BorderParticleTask(), 20L, 10L);
@@ -252,8 +209,8 @@ public class MammothPlugin extends JavaPlugin {
         // Custom listeners.
         getServer().getPluginManager().registerEvents(new OutgoingPlayerHitListener(), this);
 
-        zeroMQThread = new Thread(new ZeroMQServer(this, context, selfHostname, bindAddress));
-        zeroMQThread.start();
+        // Start last, so every listener is ready before the first message can arrive.
+        worldQlTransport.start(new ClusterMessageDispatcher());
     }
 
     /**
@@ -298,22 +255,24 @@ public class MammothPlugin extends JavaPlugin {
         if (ProtocolManager.isPacketEventsInitialized()) {
             PacketEvents.getAPI().terminate();
         }
-        if (context != null && zeroMQThread != null) {
-            getLogger().info("Shutting down ZeroMQ thread.");
-            context.close();
-            try {
-                zeroMQThread.interrupt();
-                zeroMQThread.join();
-            } catch (InterruptedException ignored) {
-            }
+        if (worldQlTransport != null) {
+            worldQlTransport.close();
+            worldQlTransport = null;
         }
+    }
+
+    /** How Mammoth talks to the other servers in the cluster. */
+    public static MammothTransport transport() {
+        return worldQlTransport;
+    }
+
+    /** Where permanent world changes are stored. */
+    public static RecordStore records() {
+        return worldQlTransport;
     }
 
     public static MammothPlugin getPluginInstance() {
         return pluginInstance;
     }
 
-    public ZMQ.Socket getPushSocket() {
-        return pushSocket;
-    }
 }

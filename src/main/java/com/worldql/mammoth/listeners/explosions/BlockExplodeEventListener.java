@@ -2,13 +2,13 @@ package com.worldql.mammoth.listeners.explosions;
 
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.Slices;
-import com.worldql.mammoth.worldql_serialization.*;
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.worldql_serialization.Record;
+import com.worldql.mammoth.worldql_serialization.Vec3D;
 import org.bukkit.block.Block;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockExplodeEvent;
-import zmq.ZMQ;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -23,12 +23,14 @@ import java.util.UUID;
 public class BlockExplodeEventListener implements Listener {
     @EventHandler
     public void onBlockExplodeEvent(BlockExplodeEvent e) {
+        Vec3D origin = new Vec3D(e.getBlock().getLocation());
+        String world = e.getBlock().getWorld().getName();
+
         if (Slices.enabled && Slices.isDMZ(e.getBlock().getLocation())) {
             e.setCancelled(true);
             // The exploding block itself is still consumed, so tell the cluster it is gone.
-            Message message = blockUpdate(e, List.of(airRecord(e.getBlock())));
-            MammothPlugin.getPluginInstance().getPushSocket()
-                    .send(message.withInstruction(Instruction.GlobalMessage).encode(), ZMQ.ZMQ_DONTWAIT);
+            MammothPlugin.transport().broadcast(ClusterMessage.of(
+                    world, origin, "MinecraftBlockUpdate", List.of(airRecord(e.getBlock()))));
             return;
         }
 
@@ -41,11 +43,8 @@ public class BlockExplodeEventListener implements Listener {
             brokenBlocks.add(airRecord(block));
         }
 
-        Message message = blockUpdate(e, brokenBlocks);
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
-        // Recorded changes are only replayed when a chunk loads, so also notify subscribed servers now.
-        MammothPlugin.getPluginInstance().getPushSocket()
-                .send(message.withInstruction(Instruction.LocalMessage).encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.records().saveAndPublish(
+                ClusterMessage.of(world, origin, "MinecraftBlockUpdate", brokenBlocks));
     }
 
     private static Record airRecord(Block block) {
@@ -54,22 +53,6 @@ public class BlockExplodeEventListener implements Listener {
                 new Vec3D(block.getLocation()),
                 block.getWorld().getName(),
                 "minecraft:air",
-                null
-        );
-    }
-
-    private static Message blockUpdate(BlockExplodeEvent e, List<Record> records) {
-        return new Message(
-                Instruction.RecordCreate,
-                MammothPlugin.worldQLClientId,
-                e.getBlock().getWorld().getName(),
-                Replication.ExceptSelf,
-                // This field isn't really used since the Records also contain the position
-                // of the changed block(s).
-                new Vec3D(e.getBlock().getLocation()),
-                records,
-                null,
-                "MinecraftBlockUpdate",
                 null
         );
     }

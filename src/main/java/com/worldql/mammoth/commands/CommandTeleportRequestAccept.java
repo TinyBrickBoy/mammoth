@@ -1,9 +1,7 @@
 package com.worldql.mammoth.commands;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.MammothPlugin;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Replication;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.Command;
@@ -11,7 +9,6 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 
@@ -24,19 +21,8 @@ public class CommandTeleportRequestAccept implements CommandExecutor {
 
         ByteBuffer bb = CommandTeleportRequest.pendingTeleportRequests.get(target.getUniqueId());
         if (bb != null) {
-            Message message = new Message(
-                    Instruction.GlobalMessage,
-                    MammothPlugin.worldQLClientId,
-                    "@global",
-                    Replication.IncludingSelf,
-                    null,
-                    null,
-                    null,
-                    "MinecraftTeleport",
-                    bb
-            );
-
-            MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+            MammothPlugin.transport().broadcastIncludingSelf(
+                    ClusterMessage.anywhere("MinecraftTeleport", bb));
             target.sendMessage(Component.text("Teleport request accepted!", NamedTextColor.GREEN));
             return true;
         } else {

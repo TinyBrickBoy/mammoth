@@ -1,5 +1,6 @@
 package com.worldql.mammoth.protocols;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
 import com.github.retrooper.packetevents.protocol.entity.data.EntityDataTypes;
 import com.github.retrooper.packetevents.protocol.entity.pose.EntityPose;
@@ -7,7 +8,6 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEn
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata;
 import com.google.flatbuffers.FlexBuffers;
 import com.worldql.mammoth.ghost.GhostPlayer;
-import com.worldql.mammoth.worldql_serialization.Message;
 
 import java.util.Collections;
 
@@ -15,8 +15,8 @@ public class MinecraftPlayerSingleAction {
     /** Metadata index of an entity's pose. */
     private static final int POSE_INDEX = 6;
 
-    public static void process(Message state, GhostPlayer ghost) {
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
+    public static void process(ClusterMessage state, GhostPlayer ghost) {
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
 
         switch (playerMessageMap.get("action").asString()) {
             case "crouch" -> sendPose(ghost, EntityPose.CROUCHING);

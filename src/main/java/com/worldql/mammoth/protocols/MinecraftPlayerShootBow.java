@@ -1,9 +1,9 @@
 package com.worldql.mammoth.protocols;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.ghost.GhostPlayer;
-import com.worldql.mammoth.worldql_serialization.Message;
 import org.bukkit.Location;
 import org.bukkit.entity.AbstractArrow;
 import org.bukkit.entity.Arrow;
@@ -12,8 +12,8 @@ import org.bukkit.util.Vector;
 
 public class MinecraftPlayerShootBow {
 
-    public static void process(Message state, GhostPlayer ghost) {
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
+    public static void process(ClusterMessage state, GhostPlayer ghost) {
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
         boolean charging = playerMessageMap.get("charging").asBoolean();
 
         HandState.broadcast(ghost, charging, playerMessageMap.get("offhand").asBoolean());

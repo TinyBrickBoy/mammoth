@@ -1,17 +1,14 @@
 package com.worldql.mammoth.listeners.utils;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.worldql_serialization.Codec;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Replication;
 import com.worldql.mammoth.worldql_serialization.Vec3D;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 
@@ -53,18 +50,7 @@ public final class OutgoingPlayerEquipment {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.LocalMessage,
-                MammothPlugin.worldQLClientId,
-                player.getWorld().getName(),
-                Replication.ExceptSelf,
-                new Vec3D(player.getLocation()),
-                null,
-                null,
-                "MinecraftPlayerEquipmentEdit",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().publishToRegion(
+                ClusterMessage.at(player.getWorld().getName(), new Vec3D(player.getLocation()), "MinecraftPlayerEquipmentEdit", bb));
     }
 }

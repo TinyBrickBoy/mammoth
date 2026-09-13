@@ -3,10 +3,7 @@ package com.worldql.mammoth.listeners.world;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.listeners.utils.BlockTools;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Record;
-import com.worldql.mammoth.worldql_serialization.Replication;
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.worldql_serialization.Vec3D;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -15,7 +12,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
-import zmq.ZMQ;
 
 import java.util.List;
 
@@ -52,21 +48,10 @@ public class NoteBlockListener implements Listener {
             return;
         }
 
-        Record record = BlockTools.serializeBlock(block);
-        Message message = new Message(
-                Instruction.RecordCreate,
-                MammothPlugin.worldQLClientId,
+        MammothPlugin.records().saveAndPublish(ClusterMessage.of(
                 block.getWorld().getName(),
-                Replication.ExceptSelf,
                 new Vec3D(block.getLocation()),
-                List.of(record),
-                null,
                 "MinecraftBlockUpdate",
-                null
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
-        MammothPlugin.getPluginInstance().getPushSocket()
-                .send(message.withInstruction(Instruction.LocalMessage).encode(), ZMQ.ZMQ_DONTWAIT);
+                List.of(BlockTools.serializeBlock(block))));
     }
 }

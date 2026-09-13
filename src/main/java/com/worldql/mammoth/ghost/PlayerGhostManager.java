@@ -1,9 +1,9 @@
 package com.worldql.mammoth.ghost;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.protocols.*;
-import com.worldql.mammoth.worldql_serialization.Message;
 import io.github.retrooper.packetevents.util.SpigotReflectionUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -21,12 +21,12 @@ public class PlayerGhostManager {
     private static final Map<UUID, GhostPlayer> ghostsByUuid = new ConcurrentHashMap<>();
     private static final Map<Integer, GhostPlayer> ghostsByEntityId = new ConcurrentHashMap<>();
 
-    public static void updateNPC(Message state) {
+    public static void updateNPC(ClusterMessage state) {
         if (!MammothPlugin.processGhosts) {
             return;
         }
 
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
 
         UUID playerUUID = UUID.fromString(playerMessageMap.get("uuid").asString());
 
@@ -130,7 +130,7 @@ public class PlayerGhostManager {
         ghostsByEntityId.clear();
     }
 
-    public static void processPacket(Message state, GhostPlayer ghost) {
+    public static void processPacket(ClusterMessage state, GhostPlayer ghost) {
         switch (state.parameter()) {
             case "MinecraftPlayerMove" -> MinecraftPlayerMove.process(state, ghost);
             case "MinecraftPlayerSingleAction" -> MinecraftPlayerSingleAction.process(state, ghost);

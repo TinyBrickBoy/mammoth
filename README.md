@@ -50,6 +50,19 @@ Mammoth has two modes:
 - Cross-server chat with a configurable `chat-format`, `&` colour codes and PlaceholderAPI support.
 - A particle wall along server borders so players can see a boundary coming (`border-particles`).
 
+## Architecture
+
+The message broker sits behind two interfaces in `com.worldql.mammoth.transport`:
+
+- `MammothTransport` carries messages between servers (broadcast, region scoped publish,
+  region subscribe/unsubscribe).
+- `RecordStore` holds permanent world changes and replays them when a chunk loads.
+
+Listeners speak `ClusterMessage`, which has no broker vocabulary in it: no instruction codes, no
+replication flags, no sockets. `transport.worldql.WorldQlTransport` is the only class that knows
+Mammoth talks to a WorldQL server over ZeroMQ, and `ClusterMessageDispatcher` holds what Mammoth
+does with an incoming message. Pointing Mammoth at a different backend means writing one class.
+
 ## Configuration notes
 - `host` is the address the rest of the cluster is told to reach this server on, and may be a DNS
   name (handy in Docker Compose). `bind-address` is the local interface Mammoth listens on and has

@@ -1,5 +1,6 @@
 package com.worldql.mammoth;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.worldql_serialization.*;
 import com.worldql.mammoth.worldql_serialization.Record;
 import org.bukkit.Bukkit;
@@ -12,7 +13,6 @@ import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Bed;
 import org.bukkit.block.data.type.Door;
 import org.bukkit.inventory.ItemStack;
-import zmq.ZMQ;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -46,20 +46,8 @@ public class MinecraftUtil {
                 "minecraft:air",
                 null
         );
-        Message message = new Message(
-                Instruction.GlobalMessage,
-                MammothPlugin.worldQLClientId,
-                "@global",
-                Replication.IncludingSelf,
-                // This field isn't really used since the Record also contains the position
-                // of the changed block(s).
-                new Vec3D(l),
-                List.of(airBlock),
-                null,
-                "MinecraftBlockUpdate",
-                null
-        );
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().broadcastIncludingSelf(
+                ClusterMessage.of(ClusterMessage.ANY_WORLD, new Vec3D(l), "MinecraftBlockUpdate", List.of(airBlock)));
     }
     public static void breakConnectedBlock(Block b) {
         BlockData bd = b.getBlockData();

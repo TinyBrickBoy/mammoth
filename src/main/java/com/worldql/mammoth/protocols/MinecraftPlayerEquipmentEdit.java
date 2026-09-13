@@ -1,12 +1,12 @@
 package com.worldql.mammoth.protocols;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.github.retrooper.packetevents.protocol.player.Equipment;
 import com.github.retrooper.packetevents.protocol.player.EquipmentSlot;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEquipment;
 import com.google.flatbuffers.FlexBuffers;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.ghost.GhostPlayer;
-import com.worldql.mammoth.worldql_serialization.Message;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
@@ -17,8 +17,8 @@ import java.util.Locale;
 
 public class MinecraftPlayerEquipmentEdit {
 
-    public static void process(Message state, GhostPlayer ghost) {
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
+    public static void process(ClusterMessage state, GhostPlayer ghost) {
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
 
         EquipmentSlot slot = parseSlot(playerMessageMap.get("type").asString());
         if (slot == null) {

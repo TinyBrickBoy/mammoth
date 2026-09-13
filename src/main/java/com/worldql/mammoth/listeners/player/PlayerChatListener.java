@@ -1,5 +1,6 @@
 package com.worldql.mammoth.listeners.player;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
@@ -15,7 +16,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.jetbrains.annotations.NotNull;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
@@ -53,23 +53,12 @@ public class PlayerChatListener implements Listener {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.GlobalMessage,
-                MammothPlugin.worldQLClientId,
-                "@global",
-                Replication.ExceptSelf,
-                null,
-                null,
-                null,
-                "MinecraftPlayerChat",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().broadcast(
+                ClusterMessage.anywhere("MinecraftPlayerChat", bb));
     }
 
-    public static void relayChat(@NotNull Message message) {
-        FlexBuffers.Map map = FlexBuffers.getRoot(message.flex()).asMap();
+    public static void relayChat(@NotNull ClusterMessage message) {
+        FlexBuffers.Map map = FlexBuffers.getRoot(message.payload()).asMap();
 
         String playerName = map.get("username").asString();
         UUID uuid = UUID.fromString(map.get("uuid").asString());

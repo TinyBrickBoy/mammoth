@@ -1,5 +1,6 @@
 package com.worldql.mammoth.minecraft_serialization;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
@@ -7,7 +8,6 @@ import com.worldql.mammoth.worldql_serialization.*;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 import java.util.UUID;
@@ -21,22 +21,11 @@ public class VillagerTransfer {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.GlobalMessage,
-                MammothPlugin.worldQLClientId,
-                "@global",
-                Replication.ExceptSelf,
-                new Vec3D(p.getLocation()),
-                null,
-                null,
-                "MinecraftVillagerTransfer",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().broadcast(
+                ClusterMessage.at(ClusterMessage.ANY_WORLD, new Vec3D(p.getLocation()), "MinecraftVillagerTransfer", bb));
     }
-    public static void handleIncomingVillager(Message incoming) {
-        FlexBuffers.Map villagerMessageMap = FlexBuffers.getRoot(incoming.flex()).asMap();
+    public static void handleIncomingVillager(ClusterMessage incoming) {
+        FlexBuffers.Map villagerMessageMap = FlexBuffers.getRoot(incoming.payload()).asMap();
         String serializedVillager = villagerMessageMap.get("villagernbt").asString();
         Bukkit.getScheduler().runTask(MammothPlugin.getPluginInstance(), () -> {
             Player p = Bukkit.getPlayer(UUID.fromString(villagerMessageMap.get("uuid").asString()));

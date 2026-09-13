@@ -1,5 +1,6 @@
 package com.worldql.mammoth.listeners.player;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.events.PlayerHoldEvent;
@@ -19,7 +20,6 @@ import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 
@@ -39,19 +39,8 @@ public class PlayerHeldItemListener implements Listener {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.LocalMessage,
-                MammothPlugin.worldQLClientId,
-                event.getPlayer().getWorld().getName(),
-                Replication.ExceptSelf,
-                new Vec3D(event.getPlayer().getLocation()),
-                null,
-                null,
-                "MinecraftPlayerEquipmentEdit",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().publishToRegion(
+                ClusterMessage.at(event.getPlayer().getWorld().getName(), new Vec3D(event.getPlayer().getLocation()), "MinecraftPlayerEquipmentEdit", bb));
     }
 
     @EventHandler

@@ -1,12 +1,10 @@
 package com.worldql.mammoth.commands;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.worldql_serialization.Codec;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Replication;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -17,7 +15,6 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 import java.util.HashMap;
@@ -50,25 +47,14 @@ public class CommandTeleportRequest implements CommandExecutor {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.GlobalMessage,
-                MammothPlugin.worldQLClientId,
-                "@global",
-                Replication.IncludingSelf,
-                null,
-                null,
-                null,
-                "MinecraftTeleportRequest",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().broadcastIncludingSelf(
+                ClusterMessage.anywhere("MinecraftTeleportRequest", bb));
         target.sendMessage(Component.text("Teleport request sent!", NamedTextColor.GREEN));
         return true;
     }
 
-    public static void handlePositionLookup(@NotNull Message incoming) {
-        FlexBuffers.Map map = FlexBuffers.getRoot(incoming.flex()).asMap();
+    public static void handlePositionLookup(@NotNull ClusterMessage incoming) {
+        FlexBuffers.Map map = FlexBuffers.getRoot(incoming.payload()).asMap();
         String target = map.get("target").asString();
         String destination = map.get("destination").asString();
 
@@ -98,8 +84,8 @@ public class CommandTeleportRequest implements CommandExecutor {
         }
     }
 
-    public static void handleTeleport(@NotNull Message incoming) {
-        FlexBuffers.Map map = FlexBuffers.getRoot(incoming.flex()).asMap();
+    public static void handleTeleport(@NotNull ClusterMessage incoming) {
+        FlexBuffers.Map map = FlexBuffers.getRoot(incoming.payload()).asMap();
         String target = map.get("target").asString();
         UUID targetID = UUID.fromString(target);
 

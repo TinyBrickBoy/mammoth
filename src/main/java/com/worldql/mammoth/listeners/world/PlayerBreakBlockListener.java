@@ -4,6 +4,7 @@ import com.worldql.mammoth.MinecraftUtil;
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.listeners.utils.BlockTools;
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.worldql_serialization.Record;
 import com.worldql.mammoth.worldql_serialization.*;
 import org.bukkit.GameMode;
@@ -12,7 +13,6 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.inventory.ItemStack;
-import zmq.ZMQ;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -33,21 +33,11 @@ public class PlayerBreakBlockListener implements Listener {
                         "minecraft:air",
                         null
                 );
-                Message message = new Message(
-                        Instruction.GlobalMessage,
-                        MammothPlugin.worldQLClientId,
-                        "@global",
-                        Replication.IncludingSelf,
-                        // This field isn't really used since the Record also contains the position
-                        // of the changed block(s).
+                MammothPlugin.transport().broadcastIncludingSelf(ClusterMessage.of(
+                        ClusterMessage.ANY_WORLD,
                         new Vec3D(e.getBlock().getLocation()),
-                        List.of(airBlock),
-                        null,
                         "MinecraftBlockUpdate",
-                        null
-                );
-
-                MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+                        List.of(airBlock)));
                 MinecraftUtil.breakConnectedBlock(e.getBlock());
             }
             return;
@@ -71,28 +61,15 @@ public class PlayerBreakBlockListener implements Listener {
         pendingDrops.add(blockUuid);
 
         Record airBlock = BlockTools.airBlock(e.getBlock().getLocation(), drops);
-        Message message = new Message(
-                Instruction.LocalMessage,
-                MammothPlugin.worldQLClientId,
-                e.getPlayer().getWorld().getName(),
-                Replication.IncludingSelf,
-                // This field isn't really used since the Record also contains the position
-                // of the changed block(s).
-                new Vec3D(e.getBlock().getLocation()),
-                List.of(airBlock),
-                null,
-                "MinecraftBlockUpdate",
-                null
-        );
+        Vec3D position = new Vec3D(e.getBlock().getLocation());
+        String world = e.getPlayer().getWorld().getName();
 
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().publishToRegionIncludingSelf(
+                ClusterMessage.of(world, position, "MinecraftBlockUpdate", List.of(airBlock)));
 
         // Don't pass drops flex to DB
-        Message recordMessage = message.withInstruction(Instruction.RecordCreate)
-                .withParameter(null)
-                .withRecords(List.of(airBlock.withFlex(null)));
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(recordMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.records().save(
+                ClusterMessage.of(world, position, null, List.of(airBlock.withFlex(null))));
     }
 
 }
