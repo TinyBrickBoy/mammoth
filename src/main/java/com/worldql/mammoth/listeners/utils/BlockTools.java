@@ -2,33 +2,30 @@ package com.worldql.mammoth.listeners.utils;
 
 import com.google.flatbuffers.FlexBuffers;
 import com.google.flatbuffers.FlexBuffersBuilder;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.worldql.mammoth.MinecraftUtil;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.listeners.world.PlayerBreakBlockListener;
 import com.worldql.mammoth.worldql_serialization.Codec;
 import com.worldql.mammoth.worldql_serialization.Record;
 import com.worldql.mammoth.worldql_serialization.Vec3D;
-import net.minecraft.core.BlockPosition;
-import net.minecraft.nbt.MojangsonParser;
-import net.minecraft.nbt.NBTTagCompound;
-import net.minecraft.world.level.block.entity.TileEntity;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.TileState;
 import org.bukkit.block.data.Bisected;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Bed;
 import org.bukkit.block.data.type.Door;
-import org.bukkit.craftbukkit.v1_18_R1.CraftWorld;
 import org.bukkit.entity.EnderCrystal;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.TNTPrimed;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -40,14 +37,15 @@ public class BlockTools {
         int pmap = b.startMap();
 
         Location location = block.getLocation();
-        CraftWorld world = (CraftWorld) location.getWorld();
-        TileEntity tile = world.getHandle().getBlockEntity(new BlockPosition(location.getBlockX(), location.getBlockY(), location.getBlockZ()), true);
+        World world = location.getWorld();
 
-        // Save NBT data
+        // Save the block entity, if this block has one. Wrapping the state in the block's item form
+        // is what lets us serialize it through the API instead of reaching into server internals:
+        // an item carrying a BlockStateMeta round-trips a chest's contents, a sign's text and so on.
+        byte[] tile = serializeTileState(block);
         if (tile != null) {
-            NBTTagCompound nbt = tile.n();
             b.putBoolean("isTile", true);
-            b.putString("nbt", nbt.toString());
+            b.putBlob("tile", tile);
         } else {
             b.putBoolean("isTile", false);
         }
@@ -139,38 +137,48 @@ public class BlockTools {
             if (!map.get("drops").isNull() && isSelf && PlayerBreakBlockListener.pendingDrops.contains(record.uuid())) {
                 PlayerBreakBlockListener.pendingDrops.remove(record.uuid());
 
-                ItemStack[] drops = new ItemStack[0];
-                try {
-                    drops = ItemTools.deserializeItemStack(map.get("drops").asBlob().data());
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-
                 Location blockCenter = b.getLocation().add(0.5, 0.5, 0.5);
-                for (ItemStack item : drops) {
+                for (ItemStack item : ItemTools.deserializeItemStack(map.get("drops").asBlob().data())) {
                     b.getWorld().dropItem(blockCenter, item);
                 }
             }
 
-            // Handle NBT
-            if (!map.get("isTile").isNull() && map.get("isTile").asBoolean()) {
-                var nbtString = map.get("nbt").asString();
-                NBTTagCompound copied = null;
-                try {
-                    copied = MojangsonParser.a(nbtString);
-                } catch (CommandSyntaxException ex) {
-                    ex.printStackTrace();
-                }
-
-                Location l = b.getLocation();
-                CraftWorld cw = (CraftWorld) l.getWorld();
-                TileEntity t = cw.getHandle().getBlockEntity(new BlockPosition(l.getBlockX(), l.getBlockY(), l.getBlockZ()), true);
-
-                if (copied != null && t != null) {
-                    t.a(copied);
-                    b.getState().update();
-                }
+            // Handle block entity data
+            if (!map.get("isTile").isNull() && map.get("isTile").asBoolean() && !map.get("tile").isNull()) {
+                applyTileState(b, map.get("tile").asBlob().getBytes());
             }
+        }
+    }
+
+    /**
+     * @return the block entity at this block serialized as bytes, or null if the block has no
+     * block entity (or one that cannot be carried in item form).
+     */
+    private static byte[] serializeTileState(@NotNull Block block) {
+        BlockState state = block.getState();
+        if (!(state instanceof TileState)) {
+            return null;
+        }
+
+        ItemStack carrier = new ItemStack(block.getType());
+        if (!(carrier.getItemMeta() instanceof BlockStateMeta meta)) {
+            return null;
+        }
+
+        meta.setBlockState(state);
+        carrier.setItemMeta(meta);
+        return carrier.serializeAsBytes();
+    }
+
+    private static void applyTileState(@NotNull Block block, byte[] serialized) {
+        try {
+            ItemStack carrier = ItemStack.deserializeBytes(serialized);
+            if (carrier.getItemMeta() instanceof BlockStateMeta meta && meta.hasBlockState()) {
+                meta.getBlockState().copy(block.getLocation()).update(true, false);
+            }
+        } catch (IllegalArgumentException e) {
+            MammothPlugin.getPluginInstance().getLogger()
+                    .warning("Failed to apply synced block entity data at " + block.getLocation() + ".");
         }
     }
 
@@ -205,9 +213,21 @@ public class BlockTools {
             @Override
             public void run() {
                 World w = Bukkit.getWorld(worldName);
+                if (w == null) {
+                    return;
+                }
                 Location location = new Location(w, position.x(), position.y(), position.z());
-                w.spawn(location, EnderCrystal.class);
 
+                // Two servers can both see the same placement (the placing server spawns one
+                // naturally, and overlapping subscription regions can deliver the message twice),
+                // which used to leave a stack of crystals on one block (issue #46).
+                for (Entity nearby : w.getNearbyEntities(location, 0.6, 0.6, 0.6)) {
+                    if (nearby instanceof EnderCrystal) {
+                        return;
+                    }
+                }
+
+                w.spawn(location, EnderCrystal.class);
             }
         }.runTask(MammothPlugin.pluginInstance);
     }

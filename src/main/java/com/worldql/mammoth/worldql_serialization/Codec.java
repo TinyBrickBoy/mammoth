@@ -14,16 +14,27 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public final class Codec {
-    private static final FlatBufferBuilder flatBuilder = new FlatBufferBuilder(1024);
-    private static final FlexBuffersBuilder flexBuilder = new FlexBuffersBuilder();
+    /*
+     * Mammoth encodes messages from the main thread, from async tasks and from the ZeroMQ thread at
+     * the same time. A FlatBufferBuilder is not thread safe, and sharing one made concurrent encodes
+     * interleave their startTable/endTable calls, which surfaced as
+     * "FlatBuffers: object serialization must not be nested" (issue #44) and as corrupted messages.
+     * One builder per thread keeps the buffer reuse without the interleaving.
+     */
+    private static final ThreadLocal<FlatBufferBuilder> FLAT_BUILDER =
+            ThreadLocal.withInitial(() -> new FlatBufferBuilder(1024));
+    private static final ThreadLocal<FlexBuffersBuilder> FLEX_BUILDER =
+            ThreadLocal.withInitial(FlexBuffersBuilder::new);
 
     @NotNull
     public static FlexBuffersBuilder getFlexBuilder() {
+        FlexBuffersBuilder flexBuilder = FLEX_BUILDER.get();
         flexBuilder.clear();
         return flexBuilder;
     }
 
     public static byte[] encodeMessage(@NotNull Message message) {
+        FlatBufferBuilder flatBuilder = FLAT_BUILDER.get();
         flatBuilder.clear();
 
         // region: Records

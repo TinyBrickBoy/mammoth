@@ -1,7 +1,17 @@
 > 🪦 This project is no longer maintained. Check out [MultiPaper](https://github.com/PureGero/MultiPaper).
 
 # Mammoth: Horizontally scalable Minecraft server
-### A Spigot plugin demonstrating WorldQL's database and message broker.
+### A Paper plugin demonstrating WorldQL's database and message broker.
+
+## Requirements
+- **Paper 26.2** or newer (`api-version` 1.21). Mammoth compiles against `paper-api` only, so there
+  is no BuildTools step and no version-specific server internals.
+- **Java 25**, which is what Paper 26.2 requires.
+- **Redis** and a **WorldQL server**.
+- [**PacketEvents**](https://modrinth.com/plugin/packetevents) - only needed for `ghosts: true`.
+  Without it Mammoth starts normally and logs that ghosts stay off.
+
+Build it with `mvn package`; the plugin jar lands in `target/`.
 
 ## What is Mammoth?
 Mammoth uses WorldQL to scale a single Minecraft world across multiple server processes. Running multiple Minecraft server processes allows for better core utilization and allows for more players to enjoy a single world. A collection of Minecraft servers using this plugin to sync with a WorldQL server is called a *Mammoth cluster*.
@@ -25,6 +35,7 @@ Mammoth has two modes:
     WQL_POSTGRES_CONNECTION_STRING="host=localhost dbname=worldql user=dbuser_worldql password=worldql"
    ```
 2. Set up redis-server and run it on localhost.
+2. If you want ghosts (seeing players from other servers), install PacketEvents alongside Mammoth.
 3. Use https://github.com/WorldQL/mc_provisioner to create your Minecraft cluster. Download the latest version of the Mammoth plugin from https://github.com/WorldQL/mammoth/actions and place it in a plugins folder next to the provisioner executable.
 4. Create the servers with `./provisioner init` and run them with `./provisioner start`.
 5. The default config will be copied to all servers in the cluster. You can copy it into your top-level plugins folder and edit it to your desired configuration. Once you've made changes to your plugins folder, you can push it to all servers with `./provisioner stop && ./provisioner sync && ./provisioner start`.
@@ -36,6 +47,15 @@ Mammoth has two modes:
   - /mtp teleports to another player regardless of their server by looking their position up across the cluster.
   - /mtpa sends an Essentials-style teleport request to a player.
   - /mtpaccept accepts a teleport request.
+- Cross-server chat with a configurable `chat-format`, `&` colour codes and PlaceholderAPI support.
+- A particle wall along server borders so players can see a boundary coming (`border-particles`).
+
+## Configuration notes
+- `host` is the address the rest of the cluster is told to reach this server on, and may be a DNS
+  name (handy in Docker Compose). `bind-address` is the local interface Mammoth listens on and has
+  to be an address, not a name - it defaults to `0.0.0.0`.
+- Blocks that hold state Mammoth cannot replicate - containers, note blocks, jukeboxes - cannot be
+  placed or used inside the DMZ, because a block on a boundary exists on two servers at once.
 
 
 ## History of Mammoth

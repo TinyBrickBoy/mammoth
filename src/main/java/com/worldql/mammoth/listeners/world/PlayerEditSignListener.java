@@ -5,7 +5,9 @@ import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.listeners.utils.BlockTools;
 import com.worldql.mammoth.worldql_serialization.Record;
 import com.worldql.mammoth.worldql_serialization.*;
+import net.kyori.adventure.text.Component;
 import org.bukkit.block.Sign;
+import org.bukkit.block.sign.SignSide;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.SignChangeEvent;
@@ -17,9 +19,12 @@ public class PlayerEditSignListener implements Listener {
     @EventHandler
     public void onSignEdit(SignChangeEvent e) {
         if (e.getBlock().getState() instanceof Sign sign) {
-            for (int i = 0; i < e.getLines().length; i++) {
-                String line = e.getLines()[i];
-                sign.setLine(i, line);
+            // The state is a snapshot taken before the edit, so copy the new lines onto it before
+            // serializing, otherwise the other servers receive the sign's previous text.
+            SignSide side = sign.getSide(e.getSide());
+            List<Component> lines = e.lines();
+            for (int i = 0; i < lines.size(); i++) {
+                side.line(i, lines.get(i));
             }
             sign.update();
         }

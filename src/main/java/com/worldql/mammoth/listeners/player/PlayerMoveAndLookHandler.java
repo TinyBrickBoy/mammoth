@@ -8,8 +8,9 @@ import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.minecraft_serialization.SaveLoadPlayerFromRedis;
 import com.worldql.mammoth.worldql_serialization.*;
-import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.TextComponent;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -33,8 +34,10 @@ public class PlayerMoveAndLookHandler implements Listener {
     public void onPlayerMoveEvent(PlayerMoveEvent e) {
         if (!MammothPlugin.playerDataSavingManager.isFullySynced(e.getPlayer())) {
             if (MammothPlugin.playerDataSavingManager.getMsSinceLogin(e.getPlayer()) > 2000) {
-                e.getPlayer().spigot().sendMessage(ChatMessageType.CHAT,
-                        new TextComponent(ChatColor.DARK_RED + "It's taking longer than expected to load your player data. " + ChatColor.DARK_AQUA + "Please try re-logging. If you're seeing this error often, notify the server admins."));
+                e.getPlayer().sendMessage(Component
+                        .text("It's taking longer than expected to load your player data. ", NamedTextColor.DARK_RED)
+                        .append(Component.text("Please try re-logging. If you're seeing this error often, notify the server admins.",
+                                NamedTextColor.DARK_AQUA)));
             }
             e.setCancelled(true);
             return;
@@ -46,15 +49,16 @@ public class PlayerMoveAndLookHandler implements Listener {
         if (Slices.isDMZ(playerLocation)) {
             int distance = Slices.getDistanceFromSliceBoundary(playerLocation);
             if (distance > 1) {
-                e.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                        new TextComponent(ChatColor.RED + "You are " + ChatColor.BOLD + "" + distance + ChatColor.RESET + ChatColor.RED + " blocks away from a server border."));
+                e.getPlayer().sendActionBar(Component.text("You are ", NamedTextColor.RED)
+                        .append(Component.text(distance, NamedTextColor.RED, TextDecoration.BOLD))
+                        .append(Component.text(" blocks away from a server border.", NamedTextColor.RED)));
             }
         }
 
         if (locationOwner != MammothPlugin.mammothServerId) {
             if (MammothPlugin.playerDataSavingManager.getMsSinceLogin(e.getPlayer()) < 5000) {
-                e.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                        new TextComponent(ChatColor.GOLD + "" + ChatColor.BOLD + "(!) You must wait 5 seconds between crossing server borders!"));
+                e.getPlayer().sendActionBar(Component.text("(!) You must wait 5 seconds between crossing server borders!",
+                        NamedTextColor.GOLD, TextDecoration.BOLD));
 
                 // 1. Compute the "cross direction" defined by the direction from the source server TO the destination server.
                 // 2. Push them back in the direction they came from towards the correct server.
@@ -75,7 +79,8 @@ public class PlayerMoveAndLookHandler implements Listener {
                     }
                     case ERROR -> {
                         if (MammothPlugin.playerDataSavingManager.getMsSinceLogin(e.getPlayer()) > 4000) {
-                            e.getPlayer().kickPlayer("The Mammoth server responsible for your region of the world is inaccessible.");
+                            e.getPlayer().kick(Component.text(
+                                    "The Mammoth server responsible for your region of the world is inaccessible."));
                         }
                     }
                 }

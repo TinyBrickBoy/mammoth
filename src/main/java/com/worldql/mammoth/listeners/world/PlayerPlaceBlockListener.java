@@ -26,13 +26,7 @@ public class PlayerPlaceBlockListener implements Listener {
         }
 
         if (Slices.enabled) {
-            /*
-            if (Slices.isDMZ(e.getBlockPlaced().getLocation()) && e.getBlockPlaced().getState() instanceof Container) {
-                e.setCancelled(true);
-                e.getPlayer().sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "You cannot place containers here.");
-                return;
-            }
-             */
+            // Blocks holding state we cannot sync are rejected in the DMZ by DmzProtectionListener.
             if (Slices.isDMZ(e.getBlockPlaced().getLocation())) {
                 // TODO: Handle compound blocks (beds, doors) and joined blocks (fences, glass panes)
                 Record placedBlock = BlockTools.serializeBlock(e.getBlockPlaced());

@@ -7,8 +7,9 @@ import com.worldql.mammoth.worldql_serialization.Codec;
 import com.worldql.mammoth.worldql_serialization.Instruction;
 import com.worldql.mammoth.worldql_serialization.Message;
 import com.worldql.mammoth.worldql_serialization.Replication;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -62,7 +63,7 @@ public class CommandTeleportRequest implements CommandExecutor {
         );
 
         MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
-        target.sendMessage(ChatColor.GREEN + "Teleport request sent!");
+        target.sendMessage(Component.text("Teleport request sent!", NamedTextColor.GREEN));
         return true;
     }
 
@@ -77,7 +78,8 @@ public class CommandTeleportRequest implements CommandExecutor {
         if (destPlayer != null) {
             Location loc = destPlayer.getLocation();
 
-            destPlayer.sendMessage(ChatColor.AQUA + "Incoming teleport request from " + username + ". Run /mtpaccept to accept.");
+            destPlayer.sendMessage(Component.text("Incoming teleport request from " + username + ". Run /mtpaccept to accept.",
+                    NamedTextColor.AQUA));
 
             FlexBuffersBuilder b = Codec.getFlexBuilder();
             int pmap = b.startMap();

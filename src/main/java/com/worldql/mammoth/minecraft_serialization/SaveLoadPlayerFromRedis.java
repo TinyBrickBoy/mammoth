@@ -3,19 +3,17 @@ package com.worldql.mammoth.minecraft_serialization;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.worldql.mammoth.MammothPlugin;
-import net.minecraft.nbt.MojangsonParser;
-import net.minecraft.nbt.NBTTagCompound;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
 import org.bukkit.World;
-import org.bukkit.craftbukkit.v1_18_R1.entity.CraftEntity;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.Vector;
-import redis.clients.jedis.Jedis;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -24,6 +22,8 @@ import java.util.Iterator;
 import java.util.Map;
 
 public class SaveLoadPlayerFromRedis {
+    private static final String[] VEHICLE_KEYS = {"horse", "boat", "strider", "minecart"};
+
     public static void savePlayerToRedis(Player player, boolean playerIsLeaving, boolean playerIsTransferring) {
         // TODO: Fix how deaths are handled.
         if (player.getHealth() == 0) {
@@ -64,7 +64,8 @@ public class SaveLoadPlayerFromRedis {
         StringBuilder potionString = new StringBuilder();
         while (iterator.hasNext()) {
             PotionEffect effect = iterator.next();
-            potionString.append(effect.getType().getName()).append(",");
+            // Namespaced keys survive the renames the old effect names went through.
+            potionString.append(effect.getType().getKey().asString()).append(",");
             potionString.append(((Integer) effect.getDuration())).append(",");
             potionString.append(((Integer) effect.getAmplifier())).append(",");
         }
@@ -74,24 +75,24 @@ public class SaveLoadPlayerFromRedis {
 
             // is the player riding a horse?
             if (player.isInsideVehicle() && player.getVehicle() instanceof Horse horse) {
-                playerData.put("horse", getNBT(horse));
+                playerData.put("horse", EntitySerialization.serialize(horse));
                 ejectRiders(horse);
                 nukeMob(horse);
             }
             // check for boat
             if (player.isInsideVehicle() && player.getVehicle() instanceof Boat boat) {
-                playerData.put("boat", getNBT(boat));
+                playerData.put("boat", EntitySerialization.serialize(boat));
                 ejectRiders(boat);
                 nukeMob(boat);
             }
             // check for nether strider
             if (player.isInsideVehicle() && player.getVehicle() instanceof Strider strider) {
-                playerData.put("strider", getNBT(strider));
+                playerData.put("strider", EntitySerialization.serialize(strider));
                 ejectRiders(strider);
                 nukeMob(strider);
             }
             if (player.isInsideVehicle() && player.getVehicle() instanceof Minecart minecart) {
-                playerData.put("minecart", getNBT(minecart));
+                playerData.put("minecart", EntitySerialization.serialize(minecart));
                 ejectRiders(minecart);
                 nukeMob(minecart);
             }
@@ -103,7 +104,7 @@ public class SaveLoadPlayerFromRedis {
                             if (e.isInsideVehicle()) {
                                 continue;
                             }
-                            VillagerTransfer.sendVillagerTransferMessage(player, getNBT(e));
+                            VillagerTransfer.sendVillagerTransferMessage(player, EntitySerialization.serialize(e));
                             nukeMob(e);
                         }
                     }
@@ -112,9 +113,9 @@ public class SaveLoadPlayerFromRedis {
         }
         ObjectMapper mapper = new ObjectMapper();
 
-        try (Jedis j = MammothPlugin.pool.getResource()) {
+        try {
             String playerAsJson = mapper.writeValueAsString(playerData);
-            j.set("player-" + player.getUniqueId(), playerAsJson);
+            MammothPlugin.redis.set("player-" + player.getUniqueId(), playerAsJson);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -125,23 +126,6 @@ public class SaveLoadPlayerFromRedis {
 
     public static void saveLeavingPlayerToRedisAsync(Player player, boolean playerIsTransferring) {
         Bukkit.getScheduler().runTaskAsynchronously(MammothPlugin.getPluginInstance(), () -> savePlayerToRedis(player, true, playerIsTransferring));
-    }
-
-    private static String getNBT(Entity e) {
-        net.minecraft.world.entity.Entity nms = ((CraftEntity) e).getHandle();
-        NBTTagCompound nbt = new NBTTagCompound();
-        nms.e(nbt);
-        return nbt.toString();
-    }
-
-    public static void setNBT(Entity e, String value) {
-        net.minecraft.world.entity.Entity nms = ((CraftEntity) e).getHandle();
-        try {
-            NBTTagCompound nbtv = MojangsonParser.a(value);
-            nms.g(nbtv);
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
     }
 
     private static void nukeMob(Entity entity) {
@@ -168,7 +152,7 @@ public class SaveLoadPlayerFromRedis {
 
 
     public static void setPlayerData(String playerJSON, Player player) throws IOException {
-        HashMap<String, Object> playerData;
+        Map<String, Object> playerData;
         ObjectMapper mapper = new ObjectMapper();
         playerData = mapper.readValue(playerJSON, new TypeReference<Map<String, Object>>() {
         });
@@ -205,25 +189,16 @@ public class SaveLoadPlayerFromRedis {
         player.setVelocity(velocity);
 
 
-        if (playerData.containsKey("horse")) {
-            Entity newHorse = player.getWorld().spawnEntity(player.getLocation(), EntityType.HORSE);
-            newHorse.addPassenger(player);
-            setNBT(newHorse, (String) playerData.get("horse"));
-        }
-        if (playerData.containsKey("boat")) {
-            Entity newBoat = player.getWorld().spawnEntity(player.getLocation(), EntityType.BOAT);
-            newBoat.addPassenger(player);
-            setNBT(newBoat, (String) playerData.get("boat"));
-        }
-        if (playerData.containsKey("strider")) {
-            Entity newStrider = player.getWorld().spawnEntity(player.getLocation(), EntityType.STRIDER);
-            newStrider.addPassenger(player);
-            setNBT(newStrider, (String) playerData.get("strider"));
-        }
-        if (playerData.containsKey("minecart")) {
-            Entity newMinecart = player.getWorld().spawnEntity(player.getLocation(), EntityType.MINECART);
-            newMinecart.addPassenger(player);
-            setNBT(newMinecart, (String) playerData.get("minecart"));
+        // The serialized data already carries the exact vehicle type, so a chest boat or a skeleton
+        // horse comes back as itself rather than as the generic variant.
+        for (String vehicleKey : VEHICLE_KEYS) {
+            if (!playerData.containsKey(vehicleKey)) {
+                continue;
+            }
+            Entity vehicle = EntitySerialization.spawn((String) playerData.get(vehicleKey), player.getLocation());
+            if (vehicle != null) {
+                vehicle.addPassenger(player);
+            }
         }
 
 
@@ -237,15 +212,21 @@ public class SaveLoadPlayerFromRedis {
             if (potions.length > 1) {
                 // loop through effects and apply them.
                 int c = 0;
-                while (c < potions.length) {
-                    PotionEffectType effectType = PotionEffectType.getByName(potions[c]);
+                while (c + 2 < potions.length) {
+                    NamespacedKey key = NamespacedKey.fromString(potions[c]);
+                    PotionEffectType effectType = key == null ? null
+                            : Registry.POTION_EFFECT_TYPE.get(key);
                     c++;
                     int duration = Integer.parseInt(potions[c]);
                     c++;
                     int amplifier = Integer.parseInt(potions[c]);
-                    PotionEffect potionEffect = effectType.createEffect(duration, amplifier);
-                    player.addPotionEffect(potionEffect);
                     c++;
+                    if (effectType == null) {
+                        // An effect this server does not know about, e.g. one added by a plugin
+                        // that is not installed here.
+                        continue;
+                    }
+                    player.addPotionEffect(effectType.createEffect(duration, amplifier));
                 }
             }
         }

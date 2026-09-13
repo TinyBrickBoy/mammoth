@@ -1,12 +1,12 @@
 package com.worldql.mammoth.listeners.explosions;
 
-import com.destroystokyo.paper.event.block.TNTPrimeEvent;
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.worldql_serialization.*;
 import com.worldql.mammoth.worldql_serialization.Record;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.TNTPrimeEvent;
 import zmq.ZMQ;
 
 import java.nio.charset.StandardCharsets;

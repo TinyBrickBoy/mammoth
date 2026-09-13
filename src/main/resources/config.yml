@@ -1,9 +1,11 @@
 # WorldQL Connection Details
 worldql:
+  # May be an IP address or a DNS name (e.g. a docker-compose service name).
   host: '127.0.0.1'
   push-port: 5555
 
 redis:
+  # May be an IP address or a DNS name.
   host: 'localhost'
   port: 6379
 
@@ -15,7 +17,11 @@ dmz-size: 10
 starting-port: 25580
 
 # See players on other servers?
+# Requires the PacketEvents plugin: https://modrinth.com/plugin/packetevents
 ghosts: false
+
+# Show a wall of particles along nearby server borders.
+border-particles: true
 
 # Disable these if you want to use Mammoth with MySQLPlayerDataBridge.
 sync-player-inventory: true
@@ -29,7 +35,14 @@ origin-radius: 256
 world-name: 'world'
 chat-relay: true
 server-prefix: 'mammoth_'
+# {0} is the player's name and {1} the message. '&' colour codes and, when the
+# PlaceholderAPI plugin is installed, its placeholders are supported.
 chat-format: '<{0}> {1}'
 
-# Client (self) Host
+# The address the other servers in the cluster should reach this one on.
+# May be a DNS name; it is sent to the WorldQL server as-is.
 host: '127.0.0.1'
+
+# The local interface Mammoth listens on. This has to be an address, not a name.
+# 0.0.0.0 listens on every interface.
+bind-address: '0.0.0.0'

@@ -4,10 +4,9 @@ import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.events.PlayerHoldEvent;
 import com.worldql.mammoth.worldql_serialization.*;
-import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.TextComponent;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -81,8 +80,8 @@ public class PlayerHeldItemListener implements Listener {
 
         if (!MammothPlugin.playerDataSavingManager.isFullySynced(player) || MammothPlugin.playerDataSavingManager.getMsSinceLogin(player) < 8000) {
             event.setCancelled(true);
-            player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.RED + "You can't move items right now. Please wait a moment..."));
+            player.sendActionBar(
+                    Component.text("You can't move items right now. Please wait a moment...", NamedTextColor.RED));
             return;
         }
 

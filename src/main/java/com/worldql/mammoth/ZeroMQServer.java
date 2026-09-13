@@ -23,18 +23,22 @@ import java.time.Instant;
 public class ZeroMQServer implements Runnable {
     private final Plugin plugin;
     private final ZContext context;
-    private final String hostname;
+    /** The address other cluster members should reach this server on. May be a DNS name. */
+    private final String advertisedHost;
+    /** The local interface to bind to. ZeroMQ can only bind to an address, never to a DNS name. */
+    private final String bindAddress;
 
-    public ZeroMQServer(Plugin plugin, ZContext context, String hostname) {
+    public ZeroMQServer(Plugin plugin, ZContext context, String advertisedHost, String bindAddress) {
         this.plugin = plugin;
         this.context = context;
-        this.hostname = hostname;
+        this.advertisedHost = advertisedHost;
+        this.bindAddress = bindAddress;
     }
 
     @Override
     public void run() {
         ZMQ.Socket socket = context.createSocket(SocketType.PULL);
-        int port = socket.bindToRandomPort("tcp://" + hostname, 29000, 30000);
+        int port = socket.bindToRandomPort("tcp://" + bindAddress, 29000, 30000);
         MammothPlugin.zeroMQServerPort = port;
 
         Message message = new Message(
@@ -45,7 +49,7 @@ public class ZeroMQServer implements Runnable {
                 null,
                 null,
                 null,
-                hostname + ":" + port,
+                advertisedHost + ":" + port,
                 null
         );
 

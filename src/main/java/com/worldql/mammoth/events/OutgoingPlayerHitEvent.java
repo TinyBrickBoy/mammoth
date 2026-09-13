@@ -1,31 +1,27 @@
 package com.worldql.mammoth.events;
 
-import com.worldql.mammoth.ghost.PlayerGhostManager;
-import net.minecraft.server.level.EntityPlayer;
+import com.worldql.mammoth.ghost.GhostPlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.UUID;
 
 public class OutgoingPlayerHitEvent extends Event {
     private static final HandlerList HANDLERS = new HandlerList();
 
-    private final EntityPlayer receiver;
+    private final GhostPlayer receiver;
     private final Player attacker;
 
-    private final UUID uuid; //this is the uuid of the entity attacked
-
     // TODO Add attackers equipment/tools, add receivers equipment, add vector of attacker
-    public OutgoingPlayerHitEvent(Player attacker, EntityPlayer receiver) {
+    public OutgoingPlayerHitEvent(Player attacker, GhostPlayer receiver) {
         this.receiver = receiver;
         this.attacker = attacker;
-
-        // this is used to send to the other servers.
-        uuid = PlayerGhostManager.getUUIDfromID(receiver.ae());
     }
 
-    public HandlerList getHandlers() {
+    @Override
+    public @NotNull HandlerList getHandlers() {
         return HANDLERS;
     }
 
@@ -33,17 +29,13 @@ public class OutgoingPlayerHitEvent extends Event {
         return HANDLERS;
     }
 
-    public EntityPlayer getReceiver() {
+    public GhostPlayer getReceiver() {
         return receiver;
     }
 
-//    public double getDamage() {
-//        return damage;
-//    }
-
-
+    /** The uuid of the real player the attacked ghost is mimicking. */
     public UUID getUUID() {
-        return uuid;
+        return receiver.getUuid();
     }
 
     public Player getAttacker() {

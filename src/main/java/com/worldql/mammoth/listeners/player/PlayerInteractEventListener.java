@@ -52,7 +52,7 @@ public class PlayerInteractEventListener implements Listener {
                     // We could also do this with getTileEntity but the Bukkit API is preferred over nms.
                     List<Entity> entities = e.getPlayer().getNearbyEntities(4, 4, 4);
                     for (Entity entity : entities) {
-                        if (EntityType.ENDER_CRYSTAL == entity.getType()) {
+                        if (EntityType.END_CRYSTAL == entity.getType()) {
                             EnderCrystal crystal = (EnderCrystal) entity;
                             Block belowCrystal = crystal.getLocation().getBlock().getRelative(BlockFace.DOWN);
                             if (e.getClickedBlock().equals(belowCrystal)) {

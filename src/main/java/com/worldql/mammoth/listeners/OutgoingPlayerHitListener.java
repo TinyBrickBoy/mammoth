@@ -27,7 +27,7 @@ public class OutgoingPlayerHitListener implements Listener {
         b.putBoolean("sprinting", event.getAttacker().isSprinting());
         b.putInt("knockbacklvl", getKnockBackLevel(event.getAttacker()));
         b.putFloat("damage", getDamageAmount(event.getAttacker()));
-        b.putString("username", event.getReceiver().co());
+        b.putString("username", event.getReceiver().getName());
         b.putString("uuid", event.getUUID().toString());
         b.putString("uuidofattacker", event.getAttacker().getUniqueId().toString());
         b.endMap(null, pmap);
@@ -39,8 +39,7 @@ public class OutgoingPlayerHitListener implements Listener {
                 event.getAttacker().getWorld().getName(),
                 Replication.ExceptSelf,
                 new Vec3D(new Location(event.getAttacker().getWorld(),
-                        // x, y, z
-                        event.getReceiver().dc(), event.getReceiver().de(), event.getReceiver().di())),
+                        event.getReceiver().getX(), event.getReceiver().getY(), event.getReceiver().getZ())),
                 null,
                 null,
                 "MinecraftPlayerDamage",
@@ -60,8 +59,11 @@ public class OutgoingPlayerHitListener implements Listener {
             else
                 return 0;
         }
-        else if(entity instanceof AbstractArrow arrow)
-            return arrow.getKnockbackStrength();
+        else if(entity instanceof AbstractArrow arrow) {
+            // Since 1.21 the knockback lives on the bow that fired the arrow, not the arrow itself.
+            ItemStack weapon = arrow.getWeapon();
+            return weapon == null ? 0 : weapon.getEnchantmentLevel(Enchantment.PUNCH);
+        }
         else
             return 0;
 
@@ -71,7 +73,7 @@ public class OutgoingPlayerHitListener implements Listener {
     private static double getDamageAmount(Player player) {
         if (player.getInventory().getItemInMainHand() == null)
             return 1;
-        return player.getAttribute(Attribute.GENERIC_ATTACK_DAMAGE).getValue();
+        return player.getAttribute(Attribute.ATTACK_DAMAGE).getValue();
     }
 
 }

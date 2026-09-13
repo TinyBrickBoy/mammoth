@@ -169,6 +169,42 @@ public class Slices {
         return false;
     }
 
+    /**
+     * Finds the slice borders running across the X axis within {@code radius} of this location.
+     *
+     * @return the world X coordinates the borders sit at, nearest first.
+     */
+    public static java.util.List<Double> nearbyBorderPlanesX(Location l, int radius) {
+        return nearbyBorderPlanes(l.getX(), radius);
+    }
+
+    /**
+     * Finds the slice borders running across the Z axis within {@code radius} of this location.
+     *
+     * @return the world Z coordinates the borders sit at, nearest first.
+     */
+    public static java.util.List<Double> nearbyBorderPlanesZ(Location l, int radius) {
+        return nearbyBorderPlanes(l.getZ(), radius);
+    }
+
+    /**
+     * Slices repeat every {@code sliceWidth} blocks starting at the west/north edge of the world,
+     * so a border lies wherever the shifted coordinate is a multiple of the slice width.
+     */
+    private static java.util.List<Double> nearbyBorderPlanes(double coordinate, int radius) {
+        java.util.List<Double> planes = new java.util.ArrayList<>(2);
+        double shifted = coordinate + (worldDiameter / 2.0);
+        long nearestSlice = Math.round(shifted / sliceWidth);
+
+        for (long slice = nearestSlice - 1; slice <= nearestSlice + 1; slice++) {
+            double plane = (slice * (double) sliceWidth) - (worldDiameter / 2.0);
+            if (Math.abs(plane - coordinate) <= radius) {
+                planes.add(plane);
+            }
+        }
+        return planes;
+    }
+
     public static int getOwnerOfLocation(Location l) {
         if (isInUnslicedOrigin(l)) {
             return 0;

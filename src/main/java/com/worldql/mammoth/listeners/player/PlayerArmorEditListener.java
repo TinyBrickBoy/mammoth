@@ -17,6 +17,7 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemBreakEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.scheduler.BukkitRunnable;
 import zmq.ZMQ;
 
@@ -201,7 +202,10 @@ public class PlayerArmorEditListener implements Listener {
         Bukkit.getServer().getPluginManager().callEvent(event);
         if (event.isCancelled()) {
             ItemStack newI = e.getBrokenItem();
-            newI.setDurability((short) (newI.getDurability() - 1));
+            if (newI.getItemMeta() instanceof Damageable damageable) {
+                damageable.setDamage(Math.max(0, damageable.getDamage() - 1));
+                newI.setItemMeta(damageable);
+            }
             armor[aType.getId()] = newI;
             player.getInventory().setArmorContents(armor);
             return;

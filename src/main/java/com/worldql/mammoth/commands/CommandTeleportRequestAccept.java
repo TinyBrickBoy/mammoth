@@ -4,7 +4,8 @@ import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.worldql_serialization.Instruction;
 import com.worldql.mammoth.worldql_serialization.Message;
 import com.worldql.mammoth.worldql_serialization.Replication;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -36,10 +37,10 @@ public class CommandTeleportRequestAccept implements CommandExecutor {
             );
 
             MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
-            target.sendMessage(ChatColor.GREEN + "Teleport request accepted!");
+            target.sendMessage(Component.text("Teleport request accepted!", NamedTextColor.GREEN));
             return true;
         } else {
-            target.sendMessage(ChatColor.RED + "You do not have any pending teleport requests.");
+            target.sendMessage(Component.text("You do not have any pending teleport requests.", NamedTextColor.RED));
             return false;
         }
     }

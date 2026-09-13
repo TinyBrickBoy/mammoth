@@ -5,19 +5,18 @@ import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.worldql_serialization.*;
 import org.bukkit.Bukkit;
-import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Villager;
 import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
 public class VillagerTransfer {
-    public static void sendVillagerTransferMessage(Player p, String villagerNBT) {
+    public static void sendVillagerTransferMessage(Player p, String serializedVillager) {
         FlexBuffersBuilder b = Codec.getFlexBuilder();
         int pmap = b.startMap();
-        b.putString("villagernbt", villagerNBT);
+        b.putString("villagernbt", serializedVillager);
         b.putString("uuid", p.getUniqueId().toString());
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
@@ -38,19 +37,22 @@ public class VillagerTransfer {
     }
     public static void handleIncomingVillager(Message incoming) {
         FlexBuffers.Map villagerMessageMap = FlexBuffers.getRoot(incoming.flex()).asMap();
-        String nbt = villagerMessageMap.get("villagernbt").asString();
+        String serializedVillager = villagerMessageMap.get("villagernbt").asString();
         Bukkit.getScheduler().runTask(MammothPlugin.getPluginInstance(), () -> {
             Player p = Bukkit.getPlayer(UUID.fromString(villagerMessageMap.get("uuid").asString()));
-            if (p != null) {
-                Villager v = (Villager) p.getWorld().spawnEntity(p.getLocation(), EntityType.VILLAGER);
-                SaveLoadPlayerFromRedis.setNBT(v, nbt);
-                Bukkit.getScheduler().runTaskLater(MammothPlugin.getPluginInstance(), () -> {
-                    v.teleport(p);
-                    if (p.isInsideVehicle()) {
-                        p.getVehicle().addPassenger(v);
-                    }
-                }, 5L);
+            if (p == null) {
+                return;
             }
+            Entity v = EntitySerialization.spawn(serializedVillager, p.getLocation());
+            if (v == null) {
+                return;
+            }
+            Bukkit.getScheduler().runTaskLater(MammothPlugin.getPluginInstance(), () -> {
+                v.teleport(p);
+                if (p.isInsideVehicle()) {
+                    p.getVehicle().addPassenger(v);
+                }
+            }, 5L);
         });
     }
 }
