@@ -1,14 +1,15 @@
 package com.worldql.mammoth.listeners.player;
 
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.ghost.PlayerGhostManager;
+import com.worldql.mammoth.listeners.utils.OutgoingPlayerEquipment;
 import com.worldql.mammoth.minecraft_serialization.SaveLoadPlayerFromRedis;
-import com.worldql.mammoth.protocols.ProtocolManager;
 import com.worldql.mammoth.worldql_serialization.*;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -17,8 +18,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import redis.clients.jedis.Jedis;
-import zmq.ZMQ;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -28,9 +27,6 @@ public class PlayerServerTransferJoinLeave implements Listener {
     public void onPlayerLogOut(PlayerQuitEvent e) {
         SaveLoadPlayerFromRedis.saveLeavingPlayerToRedisAsync(e.getPlayer(), false);
         if (MammothPlugin.processGhosts) {
-            if (ProtocolManager.isinjected(e.getPlayer()))
-                ProtocolManager.uninjectPlayer(e.getPlayer());
-
             // Send quit event to other clients
             FlexBuffersBuilder b = Codec.getFlexBuilder();
             int pmap = b.startMap();
@@ -38,18 +34,8 @@ public class PlayerServerTransferJoinLeave implements Listener {
             b.putString("uuid", e.getPlayer().getUniqueId().toString());
             b.endMap(null, pmap);
             ByteBuffer bb = b.finish();
-            Message message = new Message(
-                    Instruction.LocalMessage,
-                    MammothPlugin.worldQLClientId,
-                    e.getPlayer().getWorld().getName(),
-                    Replication.ExceptSelf,
-                    new Vec3D(e.getPlayer().getLocation()),
-                    null,
-                    null,
-                    "MinecraftPlayerQuit",
-                    bb
-            );
-            MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+            MammothPlugin.transport().publishToRegion(
+                    ClusterMessage.at(e.getPlayer().getWorld().getName(), new Vec3D(e.getPlayer().getLocation()), "MinecraftPlayerQuit", bb));
         }
     }
 
@@ -61,10 +47,7 @@ public class PlayerServerTransferJoinLeave implements Listener {
         Bukkit.getScheduler().runTaskLaterAsynchronously(MammothPlugin.getPluginInstance(), () -> {
             // make sure the transferring server doesn't save any junk on the way out.
             MammothPlugin.playerDataSavingManager.markSavedForDebounce(e.getPlayer());
-            String data;
-            try (Jedis j = MammothPlugin.pool.getResource()) {
-                data = j.get("player-" + e.getPlayer().getUniqueId());
-            }
+            String data = MammothPlugin.redis.get("player-" + e.getPlayer().getUniqueId());
 
             Bukkit.getScheduler().runTask(MammothPlugin.getPluginInstance(), () -> {
                 if (data != null) {
@@ -99,7 +82,6 @@ public class PlayerServerTransferJoinLeave implements Listener {
         //WorldQLClient.logger.info("Setting player " + e.getPlayer().getDisplayName() + " to get ghost join packets sent.");
 
         if (MammothPlugin.processGhosts) {
-            ProtocolManager.injectPlayer(e.getPlayer());
             Player player = e.getPlayer();
 
             PlayerGhostManager.ensurePlayerHasJoinPackets(player.getUniqueId());
@@ -113,19 +95,14 @@ public class PlayerServerTransferJoinLeave implements Listener {
             b.endMap(null, pmap);
             ByteBuffer bb = b.finish();
 
-            Message message = new Message(
-                    Instruction.LocalMessage,
-                    MammothPlugin.worldQLClientId,
-                    e.getPlayer().getWorld().getName(),
-                    Replication.ExceptSelf,
-                    new Vec3D(player.getLocation()),
-                    null,
-                    null,
-                    "MinecraftPlayerMove",
-                    bb
-            );
+            MammothPlugin.transport().publishToRegion(
+                    ClusterMessage.at(e.getPlayer().getWorld().getName(), new Vec3D(player.getLocation()), "MinecraftPlayerMove", bb));
 
-            MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+            // Announce what they are wearing and holding, otherwise their ghost stays naked on the
+            // other servers until they change a piece of equipment (issue #52). This runs a little
+            // later so the inventory restored from redis is the one that gets broadcast.
+            Bukkit.getScheduler().runTaskLater(MammothPlugin.getPluginInstance(),
+                    () -> OutgoingPlayerEquipment.broadcastAll(player), 40L);
         }
     }
 }

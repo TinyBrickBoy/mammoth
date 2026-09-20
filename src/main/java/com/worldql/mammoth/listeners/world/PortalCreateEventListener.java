@@ -1,5 +1,6 @@
 package com.worldql.mammoth.listeners.world;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.listeners.utils.BlockTools;
 import com.worldql.mammoth.worldql_serialization.*;
@@ -11,7 +12,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.PortalCreateEvent;
 import org.bukkit.scheduler.BukkitRunnable;
-import zmq.ZMQ;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,22 +35,11 @@ public class PortalCreateEventListener implements Listener {
                 Location l = e.getBlocks().get(0).getLocation();
 
                 // Create a WorldQL Message containing the broken blocks.
-                Message message = new Message(
-                        // RecordCreate = Permanently record this change to the world.
-                        Instruction.GlobalMessage,
-                        MammothPlugin.worldQLClientId,
-                        "@global",
-                        Replication.ExceptSelf,
-                        new Vec3D(l),
-                        portalBlocks,
-                        null,
-                        "MinecraftBlockUpdate",
-                        null
-                );
                 // Get a copy of the message we just sent, but with the Instruction type LocalMessage.
                 // This Message notifies other Minecraft servers of the block change immediately (if they are subscribed to the region)
                 // Record changes aren't loaded until the chunk is loaded.
-                MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+                MammothPlugin.transport().broadcast(
+                        ClusterMessage.of(ClusterMessage.ANY_WORLD, new Vec3D(l), "MinecraftBlockUpdate", portalBlocks));
             }
         }.runTaskLater(MammothPlugin.pluginInstance, 1);
 

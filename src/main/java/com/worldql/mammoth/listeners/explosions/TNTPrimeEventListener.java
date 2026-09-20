@@ -1,13 +1,13 @@
 package com.worldql.mammoth.listeners.explosions;
 
-import com.destroystokyo.paper.event.block.TNTPrimeEvent;
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.worldql_serialization.*;
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.worldql_serialization.Record;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import zmq.ZMQ;
+import org.bukkit.event.block.TNTPrimeEvent;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -26,28 +26,19 @@ public class TNTPrimeEventListener implements Listener {
                 null
         );
 
-        Message message = new Message(
-                Instruction.RecordCreate,
-                MammothPlugin.worldQLClientId,
-                e.getBlock().getLocation().getWorld().getName(),
-                Replication.ExceptSelf,
-                // This field isn't really used since the Record also contains the position
-                // of the changed block(s).
+        // This position isn't really used since the Record also contains the position
+        // of the changed block(s).
+        ClusterMessage primed = ClusterMessage.of(
+                e.getBlock().getWorld().getName(),
                 new Vec3D(e.getBlock().getLocation()),
-                List.of(airBlock),
-                null,
                 "MinecraftPrimeTNT",
-                null
-        );
+                List.of(airBlock));
 
         if (Slices.enabled && Slices.isDMZ(e.getBlock().getLocation())) {
-            Message globalMessage = message.withInstruction(Instruction.GlobalMessage).withParameter("MinecraftBlockUpdate");
-            MammothPlugin.getPluginInstance().getPushSocket().send(globalMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+            MammothPlugin.transport().broadcast(primed.withParameter("MinecraftBlockUpdate"));
             return;
         }
 
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
-        Message recordMessage = message.withInstruction(Instruction.LocalMessage);
-        MammothPlugin.getPluginInstance().getPushSocket().send(recordMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.records().saveAndPublish(primed);
     }
 }

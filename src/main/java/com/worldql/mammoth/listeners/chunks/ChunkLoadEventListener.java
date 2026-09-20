@@ -2,15 +2,11 @@ package com.worldql.mammoth.listeners.chunks;
 
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Replication;
 import com.worldql.mammoth.worldql_serialization.Vec3D;
 import org.bukkit.Chunk;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.ChunkLoadEvent;
-import zmq.ZMQ;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,32 +33,17 @@ public class ChunkLoadEventListener implements Listener {
                 parameter = Long.toString(ts);
             }
 
-            Message recordMessage = new Message(
-                    Instruction.RecordRead,
-                    MammothPlugin.worldQLClientId,
-                    chunk.getWorld().getName(),
-                    Replication.ExceptSelf,
-                    new Vec3D(x, 0, z),
-                    null,
-                    null,
-                    parameter,
-                    null
-            );
-
-            MammothPlugin.getPluginInstance().getPushSocket().send(recordMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+            String world = chunk.getWorld().getName();
+            MammothPlugin.records().requestRegion(world, new Vec3D(x, 0, z), parameter);
 
             // Handle Y=-1 to Y=-256
             if (min_height < 0) {
-                Vec3D belowZero = new Vec3D(x, -1, z);
-                Message belowZeroMessage = recordMessage.withPosition(belowZero);
-                MammothPlugin.getPluginInstance().getPushSocket().send(belowZeroMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+                MammothPlugin.records().requestRegion(world, new Vec3D(x, -1, z), parameter);
             }
 
             // Handle Y=256 to Y=511
             if (max_height > 256) {
-                Vec3D aboveWorld = new Vec3D(x, 256, z);
-                Message aboveWorldMessage = recordMessage.withPosition(aboveWorld);
-                MammothPlugin.getPluginInstance().getPushSocket().send(aboveWorldMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+                MammothPlugin.records().requestRegion(world, new Vec3D(x, 256, z), parameter);
             }
 
             seenChunks.put(chunk, System.currentTimeMillis());
@@ -70,15 +51,7 @@ public class ChunkLoadEventListener implements Listener {
 
         if (MammothPlugin.processGhosts) {
             for (int i = min_height; i <= max_height; i += 16) {
-                Vec3D position = new Vec3D(x, i, z);
-                Message subMessage = new Message(
-                        Instruction.AreaSubscribe,
-                        MammothPlugin.worldQLClientId,
-                        chunk.getWorld().getName(),
-                        position
-                );
-
-                MammothPlugin.getPluginInstance().getPushSocket().send(subMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+                MammothPlugin.transport().subscribeToRegion(chunk.getWorld().getName(), new Vec3D(x, i, z));
             }
         }
     }

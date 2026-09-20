@@ -1,13 +1,13 @@
 package com.worldql.mammoth.listeners.player;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.events.PlayerHoldEvent;
 import com.worldql.mammoth.worldql_serialization.*;
-import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.TextComponent;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -20,7 +20,6 @@ import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 
@@ -40,19 +39,8 @@ public class PlayerHeldItemListener implements Listener {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.LocalMessage,
-                MammothPlugin.worldQLClientId,
-                event.getPlayer().getWorld().getName(),
-                Replication.ExceptSelf,
-                new Vec3D(event.getPlayer().getLocation()),
-                null,
-                null,
-                "MinecraftPlayerEquipmentEdit",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().publishToRegion(
+                ClusterMessage.at(event.getPlayer().getWorld().getName(), new Vec3D(event.getPlayer().getLocation()), "MinecraftPlayerEquipmentEdit", bb));
     }
 
     @EventHandler
@@ -81,8 +69,8 @@ public class PlayerHeldItemListener implements Listener {
 
         if (!MammothPlugin.playerDataSavingManager.isFullySynced(player) || MammothPlugin.playerDataSavingManager.getMsSinceLogin(player) < 8000) {
             event.setCancelled(true);
-            player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.RED + "You can't move items right now. Please wait a moment..."));
+            player.sendActionBar(
+                    Component.text("You can't move items right now. Please wait a moment...", NamedTextColor.RED));
             return;
         }
 

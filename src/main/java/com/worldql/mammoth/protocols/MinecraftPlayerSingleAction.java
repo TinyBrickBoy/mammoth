@@ -1,36 +1,36 @@
 package com.worldql.mammoth.protocols;
 
+import com.worldql.mammoth.transport.ClusterMessage;
+import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
+import com.github.retrooper.packetevents.protocol.entity.data.EntityDataTypes;
+import com.github.retrooper.packetevents.protocol.entity.pose.EntityPose;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityAnimation;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata;
 import com.google.flatbuffers.FlexBuffers;
-import com.worldql.mammoth.worldql_serialization.Message;
-import net.minecraft.network.protocol.game.PacketPlayOutAnimation;
-import net.minecraft.network.protocol.game.PacketPlayOutEntityMetadata;
-import net.minecraft.network.syncher.DataWatcher;
-import net.minecraft.network.syncher.DataWatcherObject;
-import net.minecraft.network.syncher.DataWatcherRegistry;
-import net.minecraft.server.level.EntityPlayer;
-import net.minecraft.world.entity.EntityPose;
+import com.worldql.mammoth.ghost.GhostPlayer;
+
+import java.util.Collections;
 
 public class MinecraftPlayerSingleAction {
+    /** Metadata index of an entity's pose. */
+    private static final int POSE_INDEX = 6;
 
-    public static void process(Message state, EntityPlayer entity) {
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
+    public static void process(ClusterMessage state, GhostPlayer ghost) {
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
 
-        String action = playerMessageMap.get("action").asString();
-        DataWatcher dw = new DataWatcher(null);
-        if (action.equals("crouch")) {
-            dw.a(new DataWatcherObject<>(6, DataWatcherRegistry.s), EntityPose.f);
-            PacketPlayOutEntityMetadata packet = new PacketPlayOutEntityMetadata(entity.ae(), dw, true);
-            ProtocolManager.sendGenericPacket(packet);
-        }
-        if (action.equals("uncrouch")) {
-            dw.a(new DataWatcherObject<>(6, DataWatcherRegistry.s), EntityPose.a);
-            PacketPlayOutEntityMetadata packet = new PacketPlayOutEntityMetadata(entity.ae(), dw, true);
-            ProtocolManager.sendGenericPacket(packet);
-        }
-        if (action.equals("punch")) {
-            PacketPlayOutAnimation punch = new PacketPlayOutAnimation(entity, (byte) 0);
-            ProtocolManager.sendGenericPacket(punch);
+        switch (playerMessageMap.get("action").asString()) {
+            case "crouch" -> sendPose(ghost, EntityPose.CROUCHING);
+            case "uncrouch" -> sendPose(ghost, EntityPose.STANDING);
+            case "punch" -> ProtocolManager.broadcast(new WrapperPlayServerEntityAnimation(
+                    ghost.getEntityId(), WrapperPlayServerEntityAnimation.EntityAnimationType.SWING_MAIN_ARM));
+            default -> {
+                // Unknown actions are ignored so newer senders don't break older receivers.
+            }
         }
     }
 
+    private static void sendPose(GhostPlayer ghost, EntityPose pose) {
+        ProtocolManager.broadcast(new WrapperPlayServerEntityMetadata(ghost.getEntityId(),
+                Collections.singletonList(new EntityData<>(POSE_INDEX, EntityDataTypes.ENTITY_POSE, pose))));
+    }
 }

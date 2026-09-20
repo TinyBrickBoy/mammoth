@@ -1,18 +1,19 @@
 package com.worldql.mammoth.listeners.player;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.ghost.PlayerGhostManager;
 import com.worldql.mammoth.listeners.utils.ItemTools;
+import com.github.retrooper.packetevents.util.Vector3d;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityTeleport;
+import com.worldql.mammoth.ghost.GhostPlayer;
 import com.worldql.mammoth.protocols.ProtocolManager;
 import com.worldql.mammoth.worldql_serialization.Codec;
-import com.worldql.mammoth.worldql_serialization.Instruction;
-import com.worldql.mammoth.worldql_serialization.Message;
-import com.worldql.mammoth.worldql_serialization.Replication;
-import net.minecraft.network.protocol.game.PacketPlayOutEntityTeleport;
-import net.minecraft.server.level.EntityPlayer;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Server;
@@ -24,15 +25,24 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.jetbrains.annotations.NotNull;
-import redis.clients.jedis.Jedis;
-import zmq.ZMQ;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
 public class PlayerDeathListener implements Listener {
     public static final ItemStack[] EMPTY_DROPS = new ItemStack[0];
+
+    private static String serializeDeathMessage(@Nullable Component message) {
+        return message == null ? "" : GsonComponentSerializer.gson().serialize(message);
+    }
+
+    private static @Nullable Component deserializeDeathMessage(String serialized) {
+        if (serialized == null || serialized.isEmpty()) {
+            return null;
+        }
+        return GsonComponentSerializer.gson().deserialize(serialized);
+    }
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e) {
@@ -41,10 +51,7 @@ public class PlayerDeathListener implements Listener {
         if (Slices.enabled) {
             Bukkit.getScheduler().runTaskAsynchronously(MammothPlugin.getPluginInstance(), () -> {
                 MammothPlugin.playerDataSavingManager.markSavedForDebounce(e.getEntity().getPlayer());
-                try (Jedis j = MammothPlugin.pool.getResource()) {
-                    String playerKey = "player-" + e.getEntity().getUniqueId();
-                    j.set(playerKey, "dead");
-                }
+                MammothPlugin.redis.set("player-" + e.getEntity().getUniqueId(), "dead");
             });
             return;
         }
@@ -65,7 +72,7 @@ public class PlayerDeathListener implements Listener {
         int pmap = b.startMap();
         b.putString("uuid", e.getEntity().getUniqueId().toString());
         if (killerUuid != null) b.putString("killer", killerUuid);
-        b.putString("message", e.getDeathMessage());
+        b.putString("message", serializeDeathMessage(e.deathMessage()));
         b.putBlob("drops", ItemTools.serializeItemStack(drops));
         b.putInt("xp", e.getDroppedExp());
         b.putFloat("x", e.getEntity().getLocation().getX());
@@ -75,19 +82,8 @@ public class PlayerDeathListener implements Listener {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.GlobalMessage,
-                MammothPlugin.worldQLClientId,
-                "@global",
-                Replication.IncludingSelf,
-                null,
-                null,
-                null,
-                "MinecraftPlayerDeath",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().broadcastIncludingSelf(
+                ClusterMessage.anywhere("MinecraftPlayerDeath", bb));
 
         // Stop drops from dropping if killed by a player
         if (killerUuid != null) {
@@ -95,14 +91,16 @@ public class PlayerDeathListener implements Listener {
         }
     }
 
-    public static void handleIncomingDeath(@NotNull Message message, boolean isSelf) {
-        FlexBuffers.Map map = FlexBuffers.getRoot(message.flex()).asMap();
+    public static void handleIncomingDeath(@NotNull ClusterMessage message, boolean isSelf) {
+        FlexBuffers.Map map = FlexBuffers.getRoot(message.payload()).asMap();
         Server server = MammothPlugin.getPluginInstance().getServer();
 
         // Broadcast death message
         if (!isSelf) {
-            String deathMsg = map.get("message").asString();
-            server.broadcastMessage(deathMsg);
+            Component deathMsg = deserializeDeathMessage(map.get("message").asString());
+            if (deathMsg != null) {
+                server.broadcast(deathMsg);
+            }
         }
 
         UUID killerUuid = null;
@@ -112,11 +110,12 @@ public class PlayerDeathListener implements Listener {
 
         // yeet the player below the map so it looks like they "died"
         // TODO: Maybe play a death animation.
-        EntityPlayer entityPlayer = PlayerGhostManager.hashtableNPCs.get(UUID.fromString(map.get("uuid").asString())).grab();
-        entityPlayer.a(
-                0.0, -50.0, 0.0, 0, 0
-        );
-        ProtocolManager.sendGenericPacket(new PacketPlayOutEntityTeleport(entityPlayer));
+        GhostPlayer ghost = PlayerGhostManager.getGhost(UUID.fromString(map.get("uuid").asString()));
+        if (ghost != null) {
+            ghost.setPosition(0.0, -50.0, 0.0, 0, 0);
+            ProtocolManager.broadcast(new WrapperPlayServerEntityTeleport(
+                    ghost.getEntityId(), new Vector3d(0.0, -50.0, 0.0), 0, 0, false));
+        }
 
         if (killerUuid != null) {
             // For lambda
@@ -136,14 +135,7 @@ public class PlayerDeathListener implements Listener {
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        ItemStack[] drops = new ItemStack[0];
-                        try {
-                            drops = ItemTools.deserializeItemStack(map.get("drops").asBlob().data());
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-
-                        for (ItemStack item : drops) {
+                        for (ItemStack item : ItemTools.deserializeItemStack(map.get("drops").asBlob().data())) {
                             world.dropItem(location, item);
                         }
 

@@ -1,13 +1,9 @@
 package com.worldql.mammoth.protocols;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.worldql.mammoth.MammothPlugin;
-import com.worldql.mammoth.worldql_serialization.Message;
-import net.minecraft.network.protocol.game.PacketPlayOutEntityMetadata;
-import net.minecraft.network.syncher.DataWatcher;
-import net.minecraft.network.syncher.DataWatcherObject;
-import net.minecraft.network.syncher.DataWatcherRegistry;
-import net.minecraft.server.level.EntityPlayer;
+import com.worldql.mammoth.ghost.GhostPlayer;
 import org.bukkit.Location;
 import org.bukkit.entity.AbstractArrow;
 import org.bukkit.entity.Arrow;
@@ -16,41 +12,32 @@ import org.bukkit.util.Vector;
 
 public class MinecraftPlayerShootBow {
 
-    @SuppressWarnings("unchecked")
-    public static void process(Message state, EntityPlayer entity) {
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
-        DataWatcher drawingBowData = new DataWatcher(entity);
-        DataWatcherObject dwObject = new DataWatcherObject<>(8, DataWatcherRegistry.a);
-        drawingBowData.a(dwObject, 0);
+    public static void process(ClusterMessage state, GhostPlayer ghost) {
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
+        boolean charging = playerMessageMap.get("charging").asBoolean();
 
-        byte handStateBitmask = 0;
-        if (playerMessageMap.get("charging").asBoolean()) {
-            if (playerMessageMap.get("offhand").asBoolean())
-                handStateBitmask = 0b00000011;
-            else
-                handStateBitmask = 0x00000001;
+        HandState.broadcast(ghost, charging, playerMessageMap.get("offhand").asBoolean());
+
+        if (charging) {
+            return;
         }
 
-        drawingBowData.b(dwObject, handStateBitmask);
-
-        ProtocolManager.sendGenericPacket(new PacketPlayOutEntityMetadata(entity.ae(),
-                drawingBowData, false));
-
-        // shoots the arrow from the npc.
-        if (!playerMessageMap.get("charging").asBoolean()) {
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    Location loc = entity.getBukkitEntity().getLocation().add(0,1.4,0);
-                    Vector v = entity.getBukkitEntity().getLocation().getDirection();
-
-                    Arrow arrow = entity.getBukkitEntity().getWorld().spawnArrow(
-                            loc, v, 1, 0);
-                    arrow.setPickupStatus(AbstractArrow.PickupStatus.DISALLOWED);
-                    arrow.setVelocity(v.normalize());
-                }
-            }.runTask(MammothPlugin.getPluginInstance());
+        // Releasing the string: fire a real arrow so it can actually hit players on this server.
+        Location origin = ghost.getLocation();
+        if (origin == null) {
+            return;
         }
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                Location loc = origin.clone().add(0, 1.4, 0);
+                Vector direction = origin.getDirection().normalize();
+
+                Arrow arrow = loc.getWorld().spawnArrow(loc, direction, 1, 0);
+                arrow.setPickupStatus(AbstractArrow.PickupStatus.DISALLOWED);
+                arrow.setVelocity(direction);
+            }
+        }.runTask(MammothPlugin.getPluginInstance());
     }
-
 }

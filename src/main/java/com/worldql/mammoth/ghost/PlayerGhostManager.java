@@ -1,103 +1,145 @@
 package com.worldql.mammoth.ghost;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
-import com.mojang.authlib.GameProfile;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.protocols.*;
-import com.worldql.mammoth.worldql_serialization.Message;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.EntityPlayer;
-import net.minecraft.server.level.WorldServer;
+import io.github.retrooper.packetevents.util.SpigotReflectionUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.craftbukkit.v1_18_R1.CraftServer;
-import org.bukkit.craftbukkit.v1_18_R1.CraftWorld;
+import org.bukkit.World;
+import org.bukkit.entity.Player;
 
-import java.util.*;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerGhostManager {
 
-    public static final Hashtable<UUID, ExpiringEntityPlayer> hashtableNPCs = new Hashtable<>();
-    public static final Hashtable<Integer, ExpiringEntityPlayer> integerNPCLookup = new Hashtable<>();
+    private static final Map<UUID, GhostPlayer> ghostsByUuid = new ConcurrentHashMap<>();
+    private static final Map<Integer, GhostPlayer> ghostsByEntityId = new ConcurrentHashMap<>();
 
-    public static void updateNPC(Message state) {
-        if (!MammothPlugin.getPluginInstance().processGhosts) {
+    public static void updateNPC(ClusterMessage state) {
+        if (!MammothPlugin.processGhosts) {
             return;
         }
 
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
 
         UUID playerUUID = UUID.fromString(playerMessageMap.get("uuid").asString());
 
         if (state.parameter().equals("MinecraftPlayerDamage")) {
-            MinecraftPlayerDamage.process(state, Bukkit.getPlayer(playerUUID), hashtableNPCs.get(UUID.fromString(playerMessageMap.get("uuidofattacker").asString())));
+            GhostPlayer attacker = ghostsByUuid.get(UUID.fromString(playerMessageMap.get("uuidofattacker").asString()));
+            MinecraftPlayerDamage.process(state, Bukkit.getPlayer(playerUUID), attacker);
             return;
         }
-        // TODO maybe a better design for this?
-        ExpiringEntityPlayer expiringEntityPlayer;
-        if (hashtableNPCs.containsKey(playerUUID))
-            expiringEntityPlayer = hashtableNPCs.get(playerUUID);
-        else {
-            expiringEntityPlayer = PlayerGhostManager.createNPC(playerMessageMap.get("username").asString(), playerUUID,
-                    new Location(Bukkit.getServer().getWorld(Objects.requireNonNull(state.worldName())),
-                            state.position().x(), state.position().y(), state.position().z()));
-            ProtocolManager.sendJoinPacket(expiringEntityPlayer.grab());
-            hashtableNPCs.put(playerUUID, expiringEntityPlayer);
-            integerNPCLookup.put(expiringEntityPlayer.grab().ae(), expiringEntityPlayer);
+
+        World world = Bukkit.getServer().getWorld(Objects.requireNonNull(state.worldName()));
+        if (world == null) {
+            return;
         }
 
-        EntityPlayer entity = expiringEntityPlayer.grab();
+        GhostPlayer ghost = ghostsByUuid.get(playerUUID);
+        if (ghost == null) {
+            ghost = createGhost(playerMessageMap.get("username").asString(), playerUUID,
+                    new Location(world, state.position().x(), state.position().y(), state.position().z()));
+            ghostsByUuid.put(playerUUID, ghost);
+            ghostsByEntityId.put(ghost.getEntityId(), ghost);
+            ProtocolManager.sendJoinPacket(ghost);
+        } else {
+            ghost.touch();
+        }
 
         if (state.parameter().equals("MinecraftPlayerQuit")) {
-            ProtocolManager.sendLeavePacket(entity);
-            int npcId = hashtableNPCs.get(playerUUID).grab().ae();
-            hashtableNPCs.remove(playerUUID);
-            integerNPCLookup.remove(npcId);
+            remove(playerUUID);
             return;
         }
-        processPacket(state, entity);
+        processPacket(state, ghost);
     }
 
-    /***
-     * This gets the UUID of a player from its entity on the other server
+    /**
+     * This gets the UUID of a player from the entity id its ghost was given on this server.
+     *
      * @param id - entity id
-     * @return - the uuid of the player it's mimicking
+     * @return - the uuid of the player it's mimicking, or null if there is no such ghost.
      */
     public static UUID getUUIDfromID(int id) {
-        UUID uuid = null;
-        ExpiringEntityPlayer eep = integerNPCLookup.get(id);
-        for (Map.Entry<UUID, ExpiringEntityPlayer> h : hashtableNPCs.entrySet()) {
-            if (h.getValue().equals(eep))
-                uuid = h.getKey();
+        GhostPlayer ghost = ghostsByEntityId.get(id);
+        return ghost == null ? null : ghost.getUuid();
+    }
+
+    public static GhostPlayer getGhostByEntityId(int id) {
+        return ghostsByEntityId.get(id);
+    }
+
+    public static GhostPlayer getGhost(UUID uuid) {
+        return ghostsByUuid.get(uuid);
+    }
+
+    private static GhostPlayer createGhost(String name, UUID uuid, Location location) {
+        return new GhostPlayer(uuid, name, SpigotReflectionUtil.generateEntityId(), location);
+    }
+
+    /** Despawns a ghost and stops tracking it. */
+    public static void remove(UUID uuid) {
+        GhostPlayer ghost = ghostsByUuid.remove(uuid);
+        if (ghost == null) {
+            return;
         }
-        return uuid;
+        ghostsByEntityId.remove(ghost.getEntityId());
+        ProtocolManager.sendLeavePacket(ghost);
     }
 
-
-    private static ExpiringEntityPlayer createNPC(String name, UUID uuid, Location location) {
-        MinecraftServer server = ((CraftServer) Bukkit.getServer()).getServer();
-        WorldServer world = ((CraftWorld) location.getWorld()).getHandle();
-        GameProfile profile = new GameProfile(uuid, name);
-        EntityPlayer npc = new EntityPlayer(server, world, profile);
-        npc.a(location.getX(), location.getY(), location.getZ(), location.getYaw(), location.getPitch());
-        return new ExpiringEntityPlayer(npc);
-    }
-
-    public static void ensurePlayerHasJoinPackets(UUID p) {
-        // Spawn ghosts for this player
-        for (Map.Entry<UUID, ExpiringEntityPlayer> uuidExpiringEntityPlayerEntry : hashtableNPCs.entrySet()) {
-            ExpiringEntityPlayer expiringEntityPlayer = uuidExpiringEntityPlayerEntry.getValue();
-            ProtocolManager.sendJoinPacket(expiringEntityPlayer.grab(), Bukkit.getPlayer(p));
+    /**
+     * Ghosts of players who wandered out of this server's subscription range stop being updated
+     * without ever sending a quit message, so they are swept up on a timer. Without this they stay
+     * in the tab list and in the world forever (issue #50).
+     */
+    public static void expireStaleGhosts() {
+        Iterator<Map.Entry<UUID, GhostPlayer>> iterator = ghostsByUuid.entrySet().iterator();
+        while (iterator.hasNext()) {
+            GhostPlayer ghost = iterator.next().getValue();
+            if (!ghost.shouldExpire()) {
+                continue;
+            }
+            iterator.remove();
+            ghostsByEntityId.remove(ghost.getEntityId());
+            ProtocolManager.sendLeavePacket(ghost);
         }
     }
 
-    public static void processPacket(Message state, EntityPlayer entity) {
+    /** Spawns every known ghost for a player who just joined or respawned. */
+    public static void ensurePlayerHasJoinPackets(UUID uuid) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player == null) {
+            return;
+        }
+        for (GhostPlayer ghost : ghostsByUuid.values()) {
+            ProtocolManager.sendJoinPacket(ghost, player);
+        }
+    }
+
+    /** Despawns every ghost, used on shutdown so nothing is left in players' tab lists. */
+    public static void removeAll() {
+        for (GhostPlayer ghost : ghostsByUuid.values()) {
+            ProtocolManager.sendLeavePacket(ghost);
+        }
+        ghostsByUuid.clear();
+        ghostsByEntityId.clear();
+    }
+
+    public static void processPacket(ClusterMessage state, GhostPlayer ghost) {
         switch (state.parameter()) {
-            case "MinecraftPlayerMove" -> MinecraftPlayerMove.process(state, entity);
-            case "MinecraftPlayerSingleAction" -> MinecraftPlayerSingleAction.process(state, entity);
-            case "MinecraftPlayerEquipmentEdit" -> MinecraftPlayerEquipmentEdit.process(state, entity);
-            case "MinecraftPlayerShieldUse" -> MinecraftPlayerShieldUse.process(state, entity);
-            case "MinecraftPlayerShootBow" -> MinecraftPlayerShootBow.process(state, entity);
+            case "MinecraftPlayerMove" -> MinecraftPlayerMove.process(state, ghost);
+            case "MinecraftPlayerSingleAction" -> MinecraftPlayerSingleAction.process(state, ghost);
+            case "MinecraftPlayerEquipmentEdit" -> MinecraftPlayerEquipmentEdit.process(state, ghost);
+            case "MinecraftPlayerShieldUse" -> MinecraftPlayerShieldUse.process(state, ghost);
+            case "MinecraftPlayerShootBow" -> MinecraftPlayerShootBow.process(state, ghost);
+            default -> {
+                // Not every MinecraftPlayer* message drives a ghost; the rest are handled elsewhere.
+            }
         }
     }
 

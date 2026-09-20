@@ -1,5 +1,6 @@
 package com.worldql.mammoth.listeners.player;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffersBuilder;
 import com.worldql.mammoth.MammothPlugin;
 import com.worldql.mammoth.events.PlayerArmorEditEvent;
@@ -17,8 +18,8 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemBreakEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.scheduler.BukkitRunnable;
-import zmq.ZMQ;
 
 import java.nio.ByteBuffer;
 
@@ -38,19 +39,8 @@ public class PlayerArmorEditListener implements Listener {
         b.endMap(null, pmap);
         ByteBuffer bb = b.finish();
 
-        Message message = new Message(
-                Instruction.LocalMessage,
-                MammothPlugin.worldQLClientId,
-                event.getPlayer().getWorld().getName(),
-                Replication.ExceptSelf,
-                new Vec3D(event.getPlayer().getLocation()),
-                null,
-                null,
-                "MinecraftPlayerEquipmentEdit",
-                bb
-        );
-
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
+        MammothPlugin.transport().publishToRegion(
+                ClusterMessage.at(event.getPlayer().getWorld().getName(), new Vec3D(event.getPlayer().getLocation()), "MinecraftPlayerEquipmentEdit", bb));
     }
 
 
@@ -201,7 +191,10 @@ public class PlayerArmorEditListener implements Listener {
         Bukkit.getServer().getPluginManager().callEvent(event);
         if (event.isCancelled()) {
             ItemStack newI = e.getBrokenItem();
-            newI.setDurability((short) (newI.getDurability() - 1));
+            if (newI.getItemMeta() instanceof Damageable damageable) {
+                damageable.setDamage(Math.max(0, damageable.getDamage() - 1));
+                newI.setItemMeta(damageable);
+            }
             armor[aType.getId()] = newI;
             player.getInventory().setArmorContents(armor);
             return;

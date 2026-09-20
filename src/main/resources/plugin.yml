@@ -1,8 +1,8 @@
 name: Mammoth
 version: '${project.version}'
-api-version: 1.18
+api-version: '1.21'
 main: com.worldql.mammoth.MammothPlugin
-softdepend: [PlaceholderAPI]
+softdepend: [PlaceholderAPI, packetevents]
 commands:
   unstuck:
     description: Get unstuck from a cave.

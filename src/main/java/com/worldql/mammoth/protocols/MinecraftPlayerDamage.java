@@ -1,15 +1,16 @@
 package com.worldql.mammoth.protocols;
 
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.google.flatbuffers.FlexBuffers;
 import com.worldql.mammoth.MammothPlugin;
-import com.worldql.mammoth.ghost.ExpiringEntityPlayer;
-import com.worldql.mammoth.worldql_serialization.Message;
+import com.worldql.mammoth.ghost.GhostPlayer;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.block.BlockFace;
 import org.bukkit.enchantments.Enchantment;
-import org.bukkit.entity.*;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.potion.PotionEffect;
@@ -22,37 +23,43 @@ import java.util.Random;
 public class MinecraftPlayerDamage {
 
     private static final Random random = new Random();
+
     //                                           receiver          attacker
-    public static void process(Message state, Player player, ExpiringEntityPlayer e) {
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
+    public static void process(ClusterMessage state, Player player, GhostPlayer attacker) {
+        if (player == null || attacker == null) {
+            return;
+        }
+
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
         boolean sprinting = playerMessageMap.get("sprinting").asBoolean();
         float knockbacklvl = (float) playerMessageMap.get("knockbacklvl").asFloat();
         float damage = (float) playerMessageMap.get("damage").asFloat();
 
-        double resistance = player.getAttribute(Attribute.GENERIC_KNOCKBACK_RESISTANCE).getValue();
+        double resistance = attributeValue(player, Attribute.KNOCKBACK_RESISTANCE);
 
         // Calculate and issue knockback
-        if (random.nextDouble() >= resistance){
-            double dist = sprinting? 1.5:1.0;
-            dist += random.nextDouble()*0.4-0.2;
-            dist += 1.55*(int)knockbacklvl;
+        Location attackerLocation = attacker.getLocation();
+        if (attackerLocation != null && random.nextDouble() >= resistance) {
+            double dist = sprinting ? 1.5 : 1.0;
+            dist += random.nextDouble() * 0.4 - 0.2;
+            dist += 1.55 * (int) knockbacklvl;
 
-            double mag = (dist + 1.5)/5.0;
-            Location location = e.grab().getBukkitEntity().getLocation();
+            double mag = (dist + 1.5) / 5.0;
+            Location location = attackerLocation.clone();
 
             // TODO Fix this, has an infinite fly glitch.
-            if(player.getLocation().getBlock().getRelative(BlockFace.DOWN).getType() == Material.AIR)
+            if (player.getLocation().getBlock().getRelative(BlockFace.DOWN).getType() == Material.AIR)
                 location.setPitch(80);
             else
-                location.setPitch((knockbacklvl < 1)? -40: -26);
+                location.setPitch((knockbacklvl < 1) ? -40 : -26);
 
             Vector velocity = setMag((location.getDirection()), mag);
             player.setVelocity(velocity);
         }
         // Calculate and issue damage
-        double points = player.getAttribute(Attribute.GENERIC_ARMOR).getValue();
-        double toughness = player.getAttribute(Attribute.GENERIC_ARMOR_TOUGHNESS).getValue();
-        PotionEffect effect = player.getPotionEffect(PotionEffectType.DAMAGE_RESISTANCE);
+        double points = attributeValue(player, Attribute.ARMOR);
+        double toughness = attributeValue(player, Attribute.ARMOR_TOUGHNESS);
+        PotionEffect effect = player.getPotionEffect(PotionEffectType.RESISTANCE);
         int resist = effect == null ? 0 : effect.getAmplifier();
         int epf = getEPF(player.getInventory());
 
@@ -60,19 +67,29 @@ public class MinecraftPlayerDamage {
         new BukkitRunnable() {
             @Override
             public void run() {
-                player.damage(calculateDamageApplied(damage, points, toughness, resist, epf), e.grab().getBukkitEntity());
+                player.damage(calculateDamageApplied(damage, points, toughness, resist, epf));
+
+                // player.damage() only plays the hurt sound to the victim's own client, so the
+                // swing and impact are played for everyone nearby too (issue #45).
+                Location soundAt = attackerLocation == null ? player.getLocation() : attackerLocation;
+                player.getWorld().playSound(soundAt,
+                        sprinting ? Sound.ENTITY_PLAYER_ATTACK_KNOCKBACK : Sound.ENTITY_PLAYER_ATTACK_STRONG,
+                        1.0f, 1.0f);
+                player.getWorld().playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1.0f, 1.0f);
             }
         }.runTask(MammothPlugin.getPluginInstance());
     }
 
-
-
-    private static Vector setMag(Vector v, double mag){
-        double denominator = Math.sqrt(v.getX()*v.getX() + v.getY()*v.getY() + v.getZ()*v.getZ());
-
-        return (denominator != 0 ) ? v.multiply(mag/denominator) : v;
+    private static double attributeValue(Player player, Attribute attribute) {
+        var instance = player.getAttribute(attribute);
+        return instance == null ? 0 : instance.getValue();
     }
 
+    private static Vector setMag(Vector v, double mag) {
+        double denominator = Math.sqrt(v.getX() * v.getX() + v.getY() * v.getY() + v.getZ() * v.getZ());
+
+        return (denominator != 0) ? v.multiply(mag / denominator) : v;
+    }
 
 
     private static double calculateDamageApplied(double damage, double points, double toughness, int resistance, int epf) {
@@ -82,17 +99,16 @@ public class MinecraftPlayerDamage {
     }
 
 
-
     private static int getEPF(PlayerInventory inv) {
         ItemStack helm = inv.getHelmet();
         ItemStack chest = inv.getChestplate();
         ItemStack legs = inv.getLeggings();
         ItemStack boot = inv.getBoots();
 
-        return (helm != null ? helm.getEnchantmentLevel(Enchantment.DAMAGE_ALL) : 0) +
-                (chest != null ? chest.getEnchantmentLevel(Enchantment.DAMAGE_ALL) : 0) +
-                (legs != null ? legs.getEnchantmentLevel(Enchantment.DAMAGE_ALL) : 0) +
-                (boot != null ? boot.getEnchantmentLevel(Enchantment.DAMAGE_ALL) : 0);
+        return (helm != null ? helm.getEnchantmentLevel(Enchantment.SHARPNESS) : 0) +
+                (chest != null ? chest.getEnchantmentLevel(Enchantment.SHARPNESS) : 0) +
+                (legs != null ? legs.getEnchantmentLevel(Enchantment.SHARPNESS) : 0) +
+                (boot != null ? boot.getEnchantmentLevel(Enchantment.SHARPNESS) : 0);
     }
 
 }

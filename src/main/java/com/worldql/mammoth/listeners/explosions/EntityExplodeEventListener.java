@@ -2,6 +2,7 @@ package com.worldql.mammoth.listeners.explosions;
 
 import com.worldql.mammoth.Slices;
 import com.worldql.mammoth.MammothPlugin;
+import com.worldql.mammoth.transport.ClusterMessage;
 import com.worldql.mammoth.worldql_serialization.*;
 import com.worldql.mammoth.worldql_serialization.Record;
 import org.bukkit.block.Block;
@@ -10,7 +11,6 @@ import org.bukkit.entity.TNTPrimed;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityExplodeEvent;
-import zmq.ZMQ;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -47,25 +47,13 @@ public class EntityExplodeEventListener implements Listener {
                     null
             ));
         }
-        // Create a WorldQL Message containing the broken blocks.
-        Message message = new Message(
-                // RecordCreate = Permanently record this change to the world.
-                Instruction.RecordCreate,
-                MammothPlugin.worldQLClientId,
+        // Record the change permanently and tell the servers watching this region right away;
+        // stored changes on their own are only replayed once a chunk loads.
+        MammothPlugin.records().saveAndPublish(ClusterMessage.of(
                 e.getLocation().getWorld().getName(),
-                Replication.ExceptSelf,
                 new Vec3D(e.getLocation()),
-                brokenBlocks,
-                null,
                 "MinecraftBlockUpdate",
-                null
-        );
-        MammothPlugin.getPluginInstance().getPushSocket().send(message.encode(), ZMQ.ZMQ_DONTWAIT);
-        // Get a copy of the message we just sent, but with the Instruction type LocalMessage.
-        // This Message notifies other Minecraft servers of the block change immediately (if they are subscribed to the region)
-        // Record changes aren't loaded until the chunk is loaded.
-        Message localMessage = message.withInstruction(Instruction.LocalMessage);
-        MammothPlugin.getPluginInstance().getPushSocket().send(localMessage.encode(), ZMQ.ZMQ_DONTWAIT);
+                brokenBlocks));
 
         // The actual explosion is sent in ExplosionPrimeEventListener
 

@@ -1,35 +1,58 @@
 package com.worldql.mammoth.protocols;
 
+import com.worldql.mammoth.transport.ClusterMessage;
+import com.github.retrooper.packetevents.protocol.player.Equipment;
+import com.github.retrooper.packetevents.protocol.player.EquipmentSlot;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEquipment;
 import com.google.flatbuffers.FlexBuffers;
-import com.mojang.datafixers.util.Pair;
-import com.worldql.mammoth.worldql_serialization.Message;
-import net.minecraft.network.protocol.game.PacketPlayOutEntityEquipment;
-import net.minecraft.server.level.EntityPlayer;
-import net.minecraft.world.entity.EnumItemSlot;
-import net.minecraft.world.item.ItemStack;
+import com.worldql.mammoth.MammothPlugin;
+import com.worldql.mammoth.ghost.GhostPlayer;
+import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.Material;
-import org.bukkit.craftbukkit.v1_18_R1.inventory.CraftItemStack;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.inventory.ItemStack;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Collections;
+import java.util.Locale;
 
 public class MinecraftPlayerEquipmentEdit {
 
-    public static void process(Message state, EntityPlayer entity) {
-        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.flex()).asMap();
-        List<Pair<EnumItemSlot, ItemStack>> equipment = new ArrayList<>();
-        EnumItemSlot slot = EnumItemSlot.a(playerMessageMap.get("type").asString());
+    public static void process(ClusterMessage state, GhostPlayer ghost) {
+        FlexBuffers.Map playerMessageMap = FlexBuffers.getRoot(state.payload()).asMap();
 
-        org.bukkit.inventory.ItemStack item = new org.bukkit.inventory.ItemStack(
-                Material.valueOf(playerMessageMap.get("material").asString()));
+        EquipmentSlot slot = parseSlot(playerMessageMap.get("type").asString());
+        if (slot == null) {
+            return;
+        }
 
-        // adds enchantment visual
-        if (playerMessageMap.get("enchanted").asBoolean())
-            item.addEnchantment(Enchantment.DURABILITY,1);
+        Material material = Material.matchMaterial(playerMessageMap.get("material").asString());
+        if (material == null) {
+            return;
+        }
 
-        equipment.add(new Pair<>(slot, CraftItemStack.asNMSCopy(item)));
+        ItemStack item = new ItemStack(material);
+        // Only the glint matters here; the ghost's item is cosmetic.
+        if (playerMessageMap.get("enchanted").asBoolean()) {
+            item.addUnsafeEnchantment(Enchantment.UNBREAKING, 1);
+        }
 
-        ProtocolManager.sendGenericPacket(new PacketPlayOutEntityEquipment(entity.ae(), equipment));
+        ProtocolManager.broadcast(new WrapperPlayServerEntityEquipment(ghost.getEntityId(),
+                Collections.singletonList(new Equipment(slot, SpigotConversionUtil.fromBukkitItemStack(item)))));
+    }
+
+    private static EquipmentSlot parseSlot(String name) {
+        return switch (name.toLowerCase(Locale.ROOT)) {
+            case "mainhand", "main_hand", "hand" -> EquipmentSlot.MAIN_HAND;
+            case "offhand", "off_hand" -> EquipmentSlot.OFF_HAND;
+            case "feet", "boots" -> EquipmentSlot.BOOTS;
+            case "legs", "leggings" -> EquipmentSlot.LEGGINGS;
+            case "chest", "chestplate" -> EquipmentSlot.CHEST_PLATE;
+            case "head", "helmet" -> EquipmentSlot.HELMET;
+            default -> {
+                MammothPlugin.getPluginInstance().getLogger()
+                        .warning("Received equipment update for unknown slot '" + name + "'.");
+                yield null;
+            }
+        };
     }
 }
